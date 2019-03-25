@@ -1,0 +1,3 @@
+<technique vs="nebula2" ps="nebula2">
+    <pass name="alpha"  depthwrite="false" blend="alpha" />
+</technique>
