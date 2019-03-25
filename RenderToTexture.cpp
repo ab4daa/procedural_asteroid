@@ -111,7 +111,7 @@ void RenderToTexture::CreateScene()
         Node* zoneNode = scene_->CreateChild("Zone");
         auto* zone = zoneNode->CreateComponent<Zone>();
         zone->SetBoundingBox(BoundingBox(-1000.0f, 1000.0f));
-        zone->SetAmbientColor(Color(0.1f, 0.1f, 0.1f));
+        zone->SetAmbientColor(Color(0.3f, 0.3f, 0.3f));
         zone->SetFogStart(500.0f);
         zone->SetFogEnd(800.0f);
 
@@ -239,7 +239,7 @@ void RenderToTexture::CreateScene()
 #endif
 #if 1
 		Node * nebulas = scene_->CreateChild("nebulaes");
-		Vector<Color> colors;
+		PODVector<Color> colors;
 		for (unsigned ii = 0; ii < 2; ii++)
 			colors.Push(Color(Random(1.0f), Random(1.0f), Random(1.0f)));
 		CreateNebulaBlob(context_, nebulas, colors, TexSize);

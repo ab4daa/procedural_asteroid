@@ -56,5 +56,5 @@ namespace Urho3D
 		}
 	}
 
-	void CreateNebulaBlob(Context* ctx, Node * node, const Vector<Color> &colors, unsigned int TextureSize);
+	void CreateNebulaBlob(Context* ctx, Node * node, const PODVector<Color> &colors, unsigned int TextureSize);
 }

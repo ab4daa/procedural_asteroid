@@ -61,6 +61,7 @@ namespace Urho3D
 				for (unsigned jj = 0; jj < vertexPerPlane; ++jj)
 				{
 					unsigned idx = kk * vertexPerPlane + jj;
+					assert(idx < vertexPerPlane * PlanePerGeometry);
 					vd[idx].position = q[PlaneCnt] * vertices[jj];
 					vd[idx].normal = q[PlaneCnt] * normal;
 					vd[idx].uv = uv[jj];
@@ -70,6 +71,7 @@ namespace Urho3D
 				for (unsigned jj = 0; jj < indexPerPlane; ++jj)
 				{
 					unsigned idx = kk * indexPerPlane + jj;
+					assert(idx < indexPerPlane * PlanePerGeometry);
 					id[idx] = indices[jj] + kk * vertexPerPlane;
 				}
 			}
@@ -159,7 +161,7 @@ namespace Urho3D
 		return ret;
 	}
 
-	void CreateNebulaBlob(Context* ctx, Node * node, const Vector<Color> &colors, unsigned int TextureSize)
+	void CreateNebulaBlob(Context* ctx, Node * node, const PODVector<Color> &colors, unsigned int TextureSize)
 	{
 		StaticModelGroup * s = node->CreateComponent<StaticModelGroup>();
 		s->SetModel(CreateNebulaModel(ctx, colors.Size()));

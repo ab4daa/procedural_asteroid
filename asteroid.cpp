@@ -1,3 +1,4 @@
+#include "uv_mapper.hpp"
 #include "FastNoise.h"
 #include "asteroid.h"
 #include <Urho3D/Urho3DAll.h>
@@ -82,6 +83,30 @@ namespace Urho3D
 		}
 	}
 
+	static unsigned numCornersBehindPlane(const BoundingBox &bb, const Plane &p)
+	{
+		Vector3 bbCorners[8] = {
+			bb.min_,
+			bb.max_,
+			Vector3(bb.min_.x_, bb.min_.y_, bb.max_.z_),
+			Vector3(bb.min_.x_, bb.max_.y_,bb.min_.z_),
+			Vector3(bb.max_.x_, bb.min_.y_, bb.min_.z_),
+			Vector3(bb.max_.x_, bb.max_.y_, bb.min_.z_),
+			Vector3(bb.max_.x_, bb.min_.y_, bb.max_.z_),
+			Vector3(bb.min_.x_, bb.max_.y_, bb.max_.z_)
+		};
+		unsigned cnt = 0;
+
+		for (unsigned ii = 0; ii < 8; ++ii)
+		{
+			if (p.Distance(bbCorners[ii]) < 0.0f)
+			{
+				cnt += 1;
+			}
+		}
+		return cnt;
+	}
+
 	static Model * CreateMesh(Context* ctx, unsigned edge_division)
 	{
 		/*create a box from (-0.5, -0.5) ~ (0.5, 0.5)*/
@@ -139,7 +164,15 @@ namespace Urho3D
 		}
 
 		/*random cut with plane*/
+		const unsigned numCutPlane = 8;
 		BoundingBox BB = calculateBB(vd, numVertices);
+		const float plane_points_x_start[numCutPlane] = { 0, BB.min_.x_ , 0, BB.min_.x_, 0, BB.min_.x_ ,0, BB.min_.x_ };
+		const float plane_points_x_end[numCutPlane] = { BB.max_.x_, 0, BB.max_.x_ , 0, BB.max_.x_, 0, BB.max_.x_ , 0 };
+		const float plane_points_y_start[numCutPlane] = { 0, 0, 0, 0, BB.min_.y_ ,BB.min_.y_ ,BB.min_.y_ ,BB.min_.y_ };
+		const float plane_points_y_end[numCutPlane] = { BB.max_.y_, BB.max_.y_, BB.max_.y_, BB.max_.y_, 0, 0, 0, 0 };
+		const float plane_points_z_start[numCutPlane] = { 0, 0, BB.min_.z_, BB.min_.z_, 0, 0, BB.min_.z_, BB.min_.z_ };
+		const float plane_points_z_end[numCutPlane] = { BB.max_.z_, BB.max_.z_, 0, 0, BB.max_.z_, BB.max_.z_, 0, 0 };
+#if 0
 		Vector3 plane_points[8] = {
 			Vector3(Random(0.0f, BB.max_.x_), Random(0.0f, BB.max_.y_), Random(0.0f, BB.max_.z_)),
 			Vector3(Random(BB.min_.x_, 0.0f), Random(0.0f, BB.max_.y_), Random(0.0f, BB.max_.z_)),
@@ -150,28 +183,37 @@ namespace Urho3D
 			Vector3(Random(0.0f, BB.max_.x_), Random(BB.min_.y_, 0.0f), Random(BB.min_.z_, 0.0f)),
 			Vector3(Random(BB.min_.x_, 0.0f), Random(BB.min_.y_, 0.0f), Random(BB.min_.z_, 0.0f))
 		};
-		for (unsigned ii = 0; ii < 4; ++ii)
+#endif
+		for (unsigned ii = 0; ii < numCutPlane; ++ii)
 		{
-			Quaternion q(Random(-20.0f, 20.0f), Random(-20.0f, 20.0f), Random(-20.0f, 20.0f));
-			Plane plane(-(plane_points[ii]), plane_points[ii]);
-			cutByPlane(vd, numVertices, plane);
+			while (true)
+			{
+				Quaternion q(Random(-20.0f, 20.0f), Random(-20.0f, 20.0f), Random(-20.0f, 20.0f));
+				Vector3 plane_point(Random(plane_points_x_start[ii], plane_points_x_end[ii]), Random(plane_points_y_start[ii], plane_points_y_end[ii]),
+					Random(plane_points_z_start[ii], plane_points_z_end[ii]));
+				Plane plane(-(q * plane_point), plane_point);
+				if (numCornersBehindPlane(BB, plane) == 1)
+				{
+					cutByPlane(vd, numVertices, plane);
+					break;
+				}
+			}
 		}
 		calculateNormal(vd, numVertices);
 
 		/*displace with noise*/
-#if 0
-		FastNoise cellular(Random(0, M_MAX_UNSIGNED));
-		cellular.SetFrequency(0.02f);
-		cellular.SetCellularReturnType(FastNoise::Distance);
+		FastNoise *cellular = new FastNoise(Random(0, M_MAX_UNSIGNED));
+		cellular->SetFrequency(0.02f);
+		cellular->SetCellularReturnType(FastNoise::Distance);
 		const Vector3 noiseScale(200.0f, 200.0f, 200.0f);
 		for (unsigned ii = 0; ii < numVertices; ++ii)
 		{
 			Vector3 p(vd[ii].position * noiseScale);
-			float displace = cellular.GetCellular(p.x_, p.y_, p.z_) / 10.0f;
+			float displace = cellular->GetCellular(p.x_, p.y_, p.z_) / 4.0f;
 			vd[ii].position = vd[ii].position + displace * vd[ii].position;
 		}
+		delete cellular;
 		calculateNormal(vd, numVertices);
-#endif
 
 		VertexBuffer * vb(new VertexBuffer(ctx));
 		IndexBuffer * ib(new IndexBuffer(ctx));
