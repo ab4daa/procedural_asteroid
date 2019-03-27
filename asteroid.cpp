@@ -5,66 +5,356 @@
 
 namespace Urho3D
 {
-	typedef struct asteroid_vertex_s_
+	struct asteroid_vertex_data_
 	{
 		Vector3 position;
 		Vector3 normal;
 		Vector4 tangent;
 		Vector2 uv;
-	}asteroid_vertex_data_;
+	};
 
-	static BoundingBox calculateBB(asteroid_vertex_data_ * vd, unsigned numVertices)
+	static BoundingBox calculateBB(const PODVector<asteroid_vertex_data_> &vd)
 	{
 		BoundingBox ret;
-		for (unsigned ii = 0; ii < numVertices; ++ii)
+		for (unsigned ii = 0; ii < vd.Size(); ++ii)
 			ret.Merge(vd[ii].position);
 
 		return ret;
 	}
 
-	static unsigned CreatePlane(asteroid_vertex_data_ * vd, unsigned short * id, unsigned data_off, const Vector3 &start, const Vector3 &dir1, const Vector3 &dir2, float len1, float len2,
-		unsigned division1, unsigned division2, const Vector3 &normal/*, const Vector2 &uvStart, const Vector2 &uvEnd*/)
-	{
-		unsigned idx = data_off;
-		for (unsigned d1 = 0; d1 < division1; ++d1)
-		{
-			for (unsigned d2 = 0; d2 < division2; ++d2)
-			{
-				Vector3 corners[4] = {  
-					Vector3(start + (dir1*d1*len1/ division1) + (dir2*d2*len2 / division2)),
-					Vector3(start + (dir1*(d1+1)*len1 / division1) + (dir2*d2*len2 / division2)),
-					Vector3(start + (dir1*d1*len1 / division1) + (dir2*(d2+1)*len2 / division2)),
-					Vector3(start + (dir1*(d1+1)*len1 / division1) + (dir2*(d2+1)*len2 / division2))
-				};
-#if 0
-				Vector2 uvs[4] = {
-					Vector2(uvStart + Vector2(d1*(uvEnd- uvStart).x_/ division1, d2*(uvEnd - uvStart).y_ / division2)),
-					Vector2(uvStart + Vector2((d1+1)*(uvEnd - uvStart).x_ / division1, d2*(uvEnd - uvStart).y_ / division2)),
-					Vector2(uvStart + Vector2(d1*(uvEnd - uvStart).x_ / division1, (d2+1)*(uvEnd - uvStart).y_ / division2)),
-					Vector2(uvStart + Vector2((d1+1)*(uvEnd - uvStart).x_ / division1, (d2+1)*(uvEnd - uvStart).y_ / division2))
-				};
-#endif
-				const unsigned short triangleIdxList[6] = {  
-					0, 1, 3, 0, 3, 2
-				};
+	class XZplaneIterator{
+	public:
+		virtual unsigned short iter(unsigned i) const = 0;
+		virtual ~XZplaneIterator() = default;
+	};
 
-				for (unsigned ii = 0; ii < 6; ++ii)
-				{
-					vd[idx + ii].position = corners[triangleIdxList[ii]];
-					vd[idx + ii].normal = normal;
-					//vd[idx + ii].uv = uvs[triangleIdxList[ii]];
-					id[idx + ii] = idx + ii;
-				}
-				idx += 6;
+	class TopBottomPlane : public XZplaneIterator
+	{
+	public:
+		TopBottomPlane(unsigned short start_offset, const IntVector3 &Segment)
+			: XZplaneIterator(), off(start_offset), seg(Segment)
+		{}
+		unsigned short iter(unsigned i) const override
+		{
+			if(i < seg.z_)
+			{
+				return off + i;
+			}
+			else if(i < seg.z_ + seg.x_)
+			{
+				unsigned xx = i - seg.z_;
+				return off + seg.z_ + xx * (seg.z_ + 1);
+			}
+			else if(i < seg.z_ + seg.x_ + seg.z_)
+			{
+				unsigned zz = seg.z_ + seg.x_ + seg.z_ - i;
+				return off + seg.x_ * (seg.z_ + 1) + zz;
+			}
+			else if(i < 2*seg.x_ + 2*seg.z_)
+			{
+				unsigned xx = 2*seg.x_ + 2*seg.z_ - i;
+				return off + xx * (seg.z_ + 1);
+			}
+			else if(i == 2*seg.x_ + 2*seg.z_)
+			{
+				return off;
+			}
+			else
+			{
+				URHO3D_LOGERROR("TopBottomPlane: exceed boundary");
+				return off;
+			}
+		}
+	private:
+		const unsigned short off;
+		const IntVector3 seg;
+	};
+
+	class MiddlePlane : public XZplaneIterator
+	{
+	public:
+		MiddlePlane(unsigned short start_offset, const IntVector3 &Segment)
+			: XZplaneIterator(), off(start_offset), seg(Segment)
+		{}
+		unsigned short iter(unsigned i) const override
+		{
+			if(i < 2*seg.x_ + 2*seg.z_)
+			{
+				return off + i;
+			}
+			else if(i == 2*seg.x_ + 2*seg.z_)
+			{
+				return off;
+			}
+			else
+			{
+				URHO3D_LOGERROR("MiddlePlane: exceed boundary");
+				return off;
+			}
+		}
+	private:
+		const unsigned short off;
+		const IntVector3 seg;
+	};
+
+	/*
+	quad:
+	i0			i1
+
+	i2			i3
+	*/
+	static void buildQuadIndex(PODVector<unsigned short> &id, unsigned short i0, unsigned short i1, unsigned short i2, unsigned short i3, const bool bottom)
+	{
+		if (!bottom)
+		{		//CW
+			id.Push(i0); id.Push(i1); id.Push(i3);
+			id.Push(i0); id.Push(i3); id.Push(i2);
+		}
+		else
+		{		//CCW
+			id.Push(i0); id.Push(i3); id.Push(i1);
+			id.Push(i0); id.Push(i2); id.Push(i3);
+		}
+	}
+
+	static unsigned short CreateCubeTopBottomPlane(PODVector<asteroid_vertex_data_> &vd, PODVector<unsigned short> &id, const Vector3 &Size, const IntVector3 &Segment, 
+		const bool bottom)
+	{
+		const unsigned vdStart = vd.Size();
+		const Vector3 half(Size / 2.0f);
+
+		for (unsigned xx = 0; xx < Segment.x_ + 1; ++xx)
+		{
+			for (unsigned zz = 0; zz < Segment.z_ + 1; ++zz)
+			{
+				asteroid_vertex_data_ data;
+				data.position = Vector3(-half.x_ + xx * Size.x_ / Segment.x_, bottom ? -half.y_ : half.y_, -half.z_ + zz * Size.z_ / Segment.z_);
+				vd.Push(data);
 			}
 		}
 
-		return idx - data_off;
+		for (unsigned xx = 0; xx < Segment.x_; ++xx)
+		{
+			for (unsigned zz = 0; zz < Segment.z_; ++zz)
+			{
+				unsigned short i0 = vdStart + xx * (Segment.z_ + 1) + 1 + zz;
+				unsigned short i1 = vdStart + (xx + 1) * (Segment.z_ + 1) + 1 + zz;
+				unsigned short i2 = vdStart + xx * (Segment.z_ + 1) + zz;
+				unsigned short i3 = vdStart + (xx + 1) * (Segment.z_ + 1) + zz;
+				buildQuadIndex(id, i0, i1, i2, i3, bottom);
+			}
+		}
+
+		return vdStart;
+	}
+	
+	static unsigned short CreateMiddleXZVertices(PODVector<asteroid_vertex_data_> &vd, const Vector3 &Size, const IntVector3 &Segment, float y)
+	{
+		const unsigned vdStart = vd.Size();
+		const Vector3 half(Size / 2.0f);
+		for(unsigned zz = 0; zz < Segment.z_ + 1; ++zz)
+		{
+			asteroid_vertex_data_ data;
+			data.position = Vector3(-half.x_, y, -half.z_ + zz * (Size.z_ / Segment.z_));
+			vd.Push(data);
+		}
+		for(unsigned xx = 1; xx < Segment.x_; ++xx)
+		{
+			asteroid_vertex_data_ data;
+			data.position = Vector3(-half.x_ + xx * (Size.x_ / Segment.x_), y, half.z_);
+			vd.Push(data);
+		}
+		for(unsigned zz = 0; zz < Segment.z_ + 1; ++zz)
+		{
+			asteroid_vertex_data_ data;
+			data.position = Vector3(half.x_, y, half.z_ - zz * (Size.z_ / Segment.z_));
+			vd.Push(data);
+		}
+		for(unsigned xx = 1; xx < Segment.x_; ++xx)
+		{
+			asteroid_vertex_data_ data;
+			data.position = Vector3(half.x_ - xx * (Size.x_ / Segment.x_), y, -half.z_);
+			vd.Push(data);
+		}
+		return vdStart;
 	}
 
-	static void cutByPlane(asteroid_vertex_data_ * vd, unsigned numVertices, const Plane &p)
+	/*create cube without duplicated vertices*/
+	static void CreateCube(PODVector<asteroid_vertex_data_> &vd, PODVector<unsigned short> &id, const Vector3 &Size, const IntVector3 &Segment)
 	{
-		for (unsigned ii = 0; ii < numVertices; ++ii)
+		if (Segment.x_ <= 0 || Segment.y_ <= 0 || Segment.z_ <= 0 || Size.x_ <= 0.0f || Size.y_ <= 0.0f || Size.z_ <= 0.0f)
+		{
+			URHO3D_LOGERROR("CreateCube: size or segment cannot <= 0");
+			return;
+		}
+
+		const unsigned numVertices = (Segment.x_ + 1) * (Segment.y_ + 1) * 2 + (Segment.y_ + 1)*(Segment.z_ + 1) * 2 + (Segment.x_ + 1)*(Segment.z_ + 1) * 2
+			- 4 * (Segment.x_ - 1) - 4 * (Segment.y_ - 1) - 4 * (Segment.z_ - 1) - 8 * 2;
+		const unsigned numIndices = Segment.x_*Segment.y_ * 2 * 3 * 2 + Segment.y_*Segment.z_ * 2 * 3 * 2 + Segment.x_*Segment.z_ * 2 * 3 * 2;
+
+		vd.Clear();
+		vd.Reserve(numVertices);
+		id.Clear();
+		id.Reserve(numIndices);
+
+		/*bottom xz plane*/
+		unsigned short bottomOff = CreateCubeTopBottomPlane(vd, id, Size, Segment, true);
+		XZplaneIterator * lastPlane = new TopBottomPlane(bottomOff, Segment);
+		XZplaneIterator * newPlane = nullptr;
+		for(unsigned ii=0; ii<Segment.y_-1; ++ii)
+		{
+			unsigned short middleOff = CreateMiddleXZVertices(vd,Size, Segment, -Size.y_/2.0f + (ii+1)*(Size.y_/Segment.y_));
+			newPlane = new MiddlePlane(middleOff, Segment);
+			
+			for(unsigned jj=0; jj<Segment.x_*2 + Segment.z_*2; ++jj)
+			{
+				buildQuadIndex(id, newPlane->iter(jj+1), newPlane->iter(jj), lastPlane->iter(jj+1), lastPlane->iter(jj), false);
+			}
+			delete lastPlane;
+			lastPlane = newPlane;
+			newPlane = nullptr;
+		}
+		unsigned short topOff = CreateCubeTopBottomPlane(vd, id, Size, Segment, false);
+		newPlane = new TopBottomPlane(topOff, Segment);
+		for(unsigned jj=0; jj<Segment.x_*2 + Segment.z_*2; ++jj)
+		{
+			buildQuadIndex(id, newPlane->iter(jj+1), newPlane->iter(jj), lastPlane->iter(jj+1), lastPlane->iter(jj), false);
+		}
+		delete newPlane;
+		delete lastPlane;
+
+		if(vd.Size() != numVertices)
+		{
+			URHO3D_LOGERROR("numVertices calculation error");
+		}
+
+		if(id.Size() != numIndices)
+		{
+			URHO3D_LOGERROR("numIndices calculation error");
+		}
+	}
+
+	/*Create sphere without duplicated vertices, github.com/caosdoar/spheres*/
+	static void CreateSphere(PODVector<asteroid_vertex_data_> &vd, PODVector<unsigned short> &id, const float radius, const unsigned parallels_count, const unsigned meridians_count)
+	{
+		if (radius <= 0.0f || parallels_count < 1 || meridians_count < 3)
+		{
+			URHO3D_LOGERROR("CreateSphere: parameter error");
+			return;
+		}
+
+		vd.Clear();
+		id.Clear();
+		{
+			asteroid_vertex_data_ north;
+			north.position = Vector3(0.0f, radius, 0.0f);
+			vd.Push(north);
+		}
+		for(unsigned j=0; j<parallels_count-1; ++j)
+		{
+			float const polar = 180.0f * float(j+1) / float(parallels_count);
+			float const sp = Sin(polar);
+			float const cp = Cos(polar);
+			for(unsigned i=0; i<meridians_count; ++i)
+			{
+				float const azimuth = 360.0f * float(i) / float(meridians_count);
+				float const sa = Sin(azimuth);
+				float const ca = Cos(azimuth);
+				float const x = sp * ca * radius;
+				float const y = cp * radius;
+				float const z = sp * sa * radius;
+				asteroid_vertex_data_ point;
+				point.position = Vector3(x, y, z);
+				vd.Push(point);
+			}
+		}
+		{
+			asteroid_vertex_data_ south;
+			south.position = Vector3(0.0f, -radius, 0.0f);
+			vd.Push(south);
+		}
+
+		for(unsigned i=0; i<meridians_count; ++i)
+		{
+			unsigned short const a = i + 1;
+			unsigned short const b = (i + 1) % meridians_count + 1;
+			id.Push(0);
+			id.Push(b);
+			id.Push(a);
+		}
+		for (unsigned  j = 0; j < parallels_count - 2; ++j)
+		{
+			unsigned short aStart = j * meridians_count + 1;
+			unsigned short bStart = (j + 1) * meridians_count + 1;
+			for (unsigned i = 0; i < meridians_count; ++i)
+			{
+				const unsigned short a = aStart + i;
+				const unsigned short a1 = aStart + (i + 1) % meridians_count;
+				const unsigned short b = bStart + i;
+				const unsigned short b1 = bStart + (i + 1) % meridians_count;
+				id.Push(a);
+				id.Push(a1);
+				id.Push(b1);
+				id.Push(a);
+				id.Push(b1);
+				id.Push(b);
+			}
+		}
+		for (unsigned i = 0; i < meridians_count; ++i)
+		{
+			unsigned short const a = i + meridians_count * (parallels_count - 2) + 1;
+			unsigned short const b = (i + 1) % meridians_count + meridians_count * (parallels_count - 2) + 1;
+			id.Push(vd.Size()-1);
+			id.Push(a);
+			id.Push(b);
+		}		
+	}
+
+	/*split mesh to 2 parts by a plane; output 2 index buffers, they use the same vertex buffer*/
+	static void SplitMesh(const PODVector<asteroid_vertex_data_> &vd, const PODVector<unsigned short> &id, const Plane &p, 
+		Vector< PODVector<unsigned short> > &parts)
+	{
+		if(id.Size() % 3)
+		{
+			URHO3D_LOGERROR("SplitCube: size of index buffer mod 3 != 0");
+			return;
+		}
+		const unsigned numTriangles = id.Size() / 3;
+		parts.Resize(2);
+		parts[0].Clear();
+		parts[1].Clear();
+		
+		for(unsigned ii=0; ii<numTriangles; ++ii)
+		{
+			unsigned behindPlane = 0;
+			for(unsigned jj=0; jj<3; ++jj)
+			{
+				if(p.Distance(vd[ id[ii*3 + jj] ].position) < 0.0f)
+				{
+					behindPlane += 1;
+				}
+			}
+
+			if(behindPlane > 2)
+			{
+				for(unsigned jj=0; jj<3; ++jj)
+				{
+					parts[0].Push(id[ii*3 + jj]);
+				}
+			}
+			else
+			{
+				for(unsigned jj=0; jj<3; ++jj)
+				{
+					parts[1].Push(id[ii*3 + jj]);
+				}
+			}
+		}
+	}
+
+	static void cutByPlane(PODVector<asteroid_vertex_data_> &vd, const Plane &p)
+	{
+		for (unsigned ii = 0; ii < vd.Size(); ++ii)
 		{
 			if (p.Distance(vd[ii].position) < 0.0f)
 			{
@@ -73,13 +363,53 @@ namespace Urho3D
 		}
 	}
 
-	static void calculateNormal(asteroid_vertex_data_ * vd, unsigned numVertices)
+	static Vector3 calculateCenter(const PODVector<asteroid_vertex_data_> &vd)
 	{
-		for (unsigned ii = 0; ii < numVertices; ii += 3)
+		Vector3 ret(Vector3::ZERO);
+		const unsigned sz = vd.Size();
+
+		for(unsigned ii=0; ii<sz; ++ii)
 		{
-			Vector3 n((vd[ii + 1].position - vd[ii].position).CrossProduct((vd[ii + 2].position - vd[ii].position)).Normalized());
-			for (unsigned jj = 0; jj < 3; ++jj)
-				vd[ii + jj].normal = n;
+			ret += vd[ii].position;
+		}
+
+		ret /= sz;
+		return ret;
+	}
+
+	static void calculateNormal(PODVector<asteroid_vertex_data_> &vd, const PODVector<unsigned short> &id)
+	{
+		if(id.Size() % 3)
+		{
+			URHO3D_LOGERROR("calculateNormal: size of index buffer mod 3 != 0");
+			return;
+		}
+		const unsigned numTriangles = id.Size() / 3;
+		const unsigned numVertices = vd.Size();
+
+		for (unsigned ii = 0; ii < numVertices; ++ii)
+		{
+			Vector3 n(Vector3::ZERO);
+			for (unsigned jj = 0; jj < numTriangles; ++jj)
+			{
+				bool found = false;
+				for(unsigned kk=0; kk<3; ++kk)
+				{
+					if(id[jj*3 + kk] == ii)
+					{
+						found = true;
+						break;
+					}
+				}
+
+				if(found)
+				{
+					Vector3 triNormal((vd[ id[jj*3+1] ].position - vd[ id[jj*3] ].position).CrossProduct(vd[ id[jj*3+2] ].position - vd[ id[jj*3] ].position));
+					n += triNormal;
+				}
+			}
+			
+			vd[ii].normal = n.Normalized();
 		}
 	}
 
@@ -110,110 +440,59 @@ namespace Urho3D
 	static Model * CreateMesh(Context* ctx, unsigned edge_division)
 	{
 		/*create a box from (-0.5, -0.5) ~ (0.5, 0.5)*/
-		const Vector3 start[6] = {
-			Vector3(-0.5f, -0.5f, 0.5f),			/*+Z*/
-			Vector3(-0.5f, -0.5f, -0.5f),		/*-Z*/
-			Vector3(0.5f, -0.5f, -0.5f),			/*+X*/
-			Vector3(-0.5f, -0.5f, -0.5f),		/*-X*/
-			Vector3(-0.5f, 0.5f, -0.5f),			/*+Y*/
-			Vector3(-0.5f, -0.5f, -0.5f)			/*-Y*/
-		};
-
-		const Vector3 dir1[6] = {
-			Vector3::RIGHT,
-			Vector3::UP,
-			Vector3::UP,
-			Vector3::FORWARD,
-			Vector3::FORWARD,
-			Vector3::RIGHT
-		};
-
-		const Vector3 dir2[6] = {
-			Vector3::UP,
-			Vector3::RIGHT,
-			Vector3::FORWARD,
-			Vector3::UP,
-			Vector3::RIGHT,
-			Vector3::FORWARD
-		};
-
-		const Vector3 normals[6] = {
-			Vector3::FORWARD,
-			Vector3::BACK,
-			Vector3::RIGHT,
-			Vector3::LEFT,
-			Vector3::UP,
-			Vector3::DOWN
-		};
-		const unsigned numTriangles = 6 * edge_division * edge_division * 2;
-		const unsigned numVertices = numTriangles * 3;
-
-		asteroid_vertex_data_ * vd = new asteroid_vertex_data_[numVertices];
-		unsigned short * id = new unsigned short[numVertices];
-		unsigned idx = 0;
-		for (unsigned face = 0; face < 6; ++face)
-		{
-			idx += CreatePlane(vd, id, idx, start[face], dir1[face], dir2[face], 1.0f, 1.0f, edge_division, edge_division, normals[face]);
-		}
+		PODVector<asteroid_vertex_data_> vd;
+		PODVector<unsigned short> id;
+		BoundingBox BB;
+		CreateCube(vd, id, Vector3::ONE, IntVector3(edge_division, edge_division, edge_division));
+		//CreateSphere(vd, id, 0.5f, 10, 20);
 
 		/*random scale*/
 		Vector3 scale(Random(0.5f, 1.5f), Random(0.5f, 1.5f), Random(0.5f, 1.5f));
-		for (unsigned ii = 0; ii < numVertices; ++ii)
+		for (unsigned ii = 0; ii < vd.Size(); ++ii)
 		{
 			vd[ii].position *= scale;
 		}
 
 		/*random cut with plane*/
 		const unsigned numCutPlane = 8;
-		BoundingBox BB = calculateBB(vd, numVertices);
+		BB = calculateBB(vd);
 		const float plane_points_x_start[numCutPlane] = { 0, BB.min_.x_ , 0, BB.min_.x_, 0, BB.min_.x_ ,0, BB.min_.x_ };
 		const float plane_points_x_end[numCutPlane] = { BB.max_.x_, 0, BB.max_.x_ , 0, BB.max_.x_, 0, BB.max_.x_ , 0 };
 		const float plane_points_y_start[numCutPlane] = { 0, 0, 0, 0, BB.min_.y_ ,BB.min_.y_ ,BB.min_.y_ ,BB.min_.y_ };
 		const float plane_points_y_end[numCutPlane] = { BB.max_.y_, BB.max_.y_, BB.max_.y_, BB.max_.y_, 0, 0, 0, 0 };
 		const float plane_points_z_start[numCutPlane] = { 0, 0, BB.min_.z_, BB.min_.z_, 0, 0, BB.min_.z_, BB.min_.z_ };
 		const float plane_points_z_end[numCutPlane] = { BB.max_.z_, BB.max_.z_, 0, 0, BB.max_.z_, BB.max_.z_, 0, 0 };
-#if 0
-		Vector3 plane_points[8] = {
-			Vector3(Random(0.0f, BB.max_.x_), Random(0.0f, BB.max_.y_), Random(0.0f, BB.max_.z_)),
-			Vector3(Random(BB.min_.x_, 0.0f), Random(0.0f, BB.max_.y_), Random(0.0f, BB.max_.z_)),
-			Vector3(Random(0.0f, BB.max_.x_), Random(0.0f, BB.max_.y_), Random(BB.min_.z_, 0.0f)),
-			Vector3(Random(BB.min_.x_, 0.0f), Random(0.0f, BB.max_.y_), Random(BB.min_.z_, 0.0f)),
-			Vector3(Random(0.0f, BB.max_.x_), Random(BB.min_.y_, 0.0f), Random(0.0f, BB.max_.z_)),
-			Vector3(Random(BB.min_.x_, 0.0f), Random(BB.min_.y_, 0.0f), Random(0.0f, BB.max_.z_)),
-			Vector3(Random(0.0f, BB.max_.x_), Random(BB.min_.y_, 0.0f), Random(BB.min_.z_, 0.0f)),
-			Vector3(Random(BB.min_.x_, 0.0f), Random(BB.min_.y_, 0.0f), Random(BB.min_.z_, 0.0f))
-		};
-#endif
 		for (unsigned ii = 0; ii < numCutPlane; ++ii)
 		{
 			while (true)
 			{
-				Quaternion q(Random(-20.0f, 20.0f), Random(-20.0f, 20.0f), Random(-20.0f, 20.0f));
+				Quaternion q(Random(-30.0f, 30.0f), Random(-30.0f, 30.0f), Random(-30.0f, 30.0f));
 				Vector3 plane_point(Random(plane_points_x_start[ii], plane_points_x_end[ii]), Random(plane_points_y_start[ii], plane_points_y_end[ii]),
 					Random(plane_points_z_start[ii], plane_points_z_end[ii]));
 				Plane plane(-(q * plane_point), plane_point);
 				if (numCornersBehindPlane(BB, plane) == 1)
 				{
-					cutByPlane(vd, numVertices, plane);
+					cutByPlane(vd, plane);
 					break;
 				}
 			}
 		}
-		calculateNormal(vd, numVertices);
+		calculateNormal(vd, id);
 
 		/*displace with noise*/
 		FastNoise *cellular = new FastNoise(Random(0, M_MAX_UNSIGNED));
 		cellular->SetFrequency(0.02f);
 		cellular->SetCellularReturnType(FastNoise::Distance);
 		const Vector3 noiseScale(200.0f, 200.0f, 200.0f);
-		for (unsigned ii = 0; ii < numVertices; ++ii)
+		for (unsigned ii = 0; ii < vd.Size(); ++ii)
 		{
 			Vector3 p(vd[ii].position * noiseScale);
 			float displace = cellular->GetCellular(p.x_, p.y_, p.z_) / 4.0f;
-			vd[ii].position = vd[ii].position + displace * vd[ii].position;
+			vd[ii].position = vd[ii].position + displace * vd[ii].normal;
 		}
 		delete cellular;
-		calculateNormal(vd, numVertices);
+		BB = calculateBB(vd);
+		calculateNormal(vd, id);
 
 		VertexBuffer * vb(new VertexBuffer(ctx));
 		IndexBuffer * ib(new IndexBuffer(ctx));
@@ -224,26 +503,24 @@ namespace Urho3D
 		elements.Push(VertexElement(TYPE_VECTOR3, SEM_NORMAL));
 		elements.Push(VertexElement(TYPE_VECTOR4, SEM_TANGENT));
 		elements.Push(VertexElement(TYPE_VECTOR2, SEM_TEXCOORD));
-		vb->SetSize(numVertices, elements);
-		vb->SetData(vd);
+		vb->SetSize(vd.Size(), elements);
+		vb->SetData(vd.Buffer());
 
 		ib->SetShadowed(true);
-		ib->SetSize(numVertices, false);
-		ib->SetData(id);
+		ib->SetSize(id.Size(), false);
+		ib->SetData(id.Buffer());
 
 		geom->SetVertexBuffer(0, vb);
 		geom->SetIndexBuffer(ib);
-		geom->SetDrawRange(TRIANGLE_LIST, 0, numVertices);
+		geom->SetDrawRange(TRIANGLE_LIST, 0, id.Size());
 
-		BB = calculateBB(vd, numVertices);
+		
 
 		Model * fromScratchModel(new Model(ctx));
 		fromScratchModel->SetNumGeometries(1);
 		fromScratchModel->SetGeometry(0, 0, geom);
 		fromScratchModel->SetBoundingBox(BB);
 
-		delete[] vd;
-		delete[] id;
 		return fromScratchModel;
 	}
 

@@ -4,12 +4,12 @@
 
 namespace Urho3D
 {
-	typedef struct nebula_vertex_s_
+	struct nebula_vertex_data_
 	{
 		Vector3 position;
 		Vector3 normal;
 		Vector2 uv;
-	}nebula_vertex_data_;
+	};
 
 	static Model * CreateNebulaModel(Context* ctx, unsigned numMaterial)
 	{
