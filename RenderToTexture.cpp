@@ -251,7 +251,13 @@ void RenderToTexture::CreateScene()
 #endif
 #if 1
 		Node * ast = scene_->CreateChild("asteroids");
-		CreateAsteroidBlob(context_, ast, "Models/Sphere.mdl");
+		PODVector<Color> palette;
+		palette.Push(Color(0.345f, 0.086f, 0.086f));
+		palette.Push(Color(0.654f, 0.282f, 0.031f));
+		palette.Push(Color(0.411f, 0.101f, 0.101f));
+		palette.Push(Color(0.529f, 0.050f, 0.050f));
+		palette.Push(Color(0.8f, 0.470f, 0.062f));
+		CreateAsteroidBlob(context_, ast, 256, palette, 20);
 		StaticModelGroup * smg = ast->GetComponent<StaticModelGroup>();
 		Node * ast1 = scene_->CreateChild("asteroid");
 		ast1->SetPosition(Vector3(-20.5f, 40.0f, 20.5f));
