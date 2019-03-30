@@ -1,19 +1,17 @@
 #include <vector>
 #include "uv_mapper.hpp"
 #include "FastNoise.h"
-#include "asteroid.h"
+#include "asteroid_triplanar.h"
 #include <Urho3D/Urho3DAll.h>
 
 //uncomment this if u want to subdivide more
 //#define DETAIL_ASTEROID_MODEL		1
 namespace Urho3D
 {
-	struct asteroid_vertex_data_
+	struct asteroid_triplanar_vertex
 	{
 		Vector3 position;
 		Vector3 normal;
-		Vector4 tangent;
-		Vector2 uv;
 	};
 
 	#ifdef DETAIL_ASTEROID_MODEL
@@ -22,8 +20,7 @@ namespace Urho3D
 	typedef unsigned short IBtype;
 	#endif
 
-
-	static BoundingBox calculateBB(const PODVector<asteroid_vertex_data_> &vd)
+	static BoundingBox calculateBB(const PODVector<asteroid_triplanar_vertex> &vd)
 	{
 		BoundingBox ret;
 		for (unsigned ii = 0; ii < vd.Size(); ++ii)
@@ -127,7 +124,7 @@ namespace Urho3D
 		}
 	}
 
-	static IBtype CreateCubeTopBottomPlane(PODVector<asteroid_vertex_data_> &vd, PODVector<IBtype> &id, const Vector3 &Size, const IntVector3 &Segment, 
+	static IBtype CreateCubeTopBottomPlane(PODVector<asteroid_triplanar_vertex> &vd, PODVector<IBtype> &id, const Vector3 &Size, const IntVector3 &Segment, 
 		const bool bottom)
 	{
 		const unsigned vdStart = vd.Size();
@@ -137,7 +134,7 @@ namespace Urho3D
 		{
 			for (unsigned zz = 0; zz < Segment.z_ + 1; ++zz)
 			{
-				asteroid_vertex_data_ data;
+				asteroid_triplanar_vertex data;
 				data.position = Vector3(-half.x_ + xx * Size.x_ / Segment.x_, bottom ? -half.y_ : half.y_, -half.z_ + zz * Size.z_ / Segment.z_);
 				vd.Push(data);
 			}
@@ -158,31 +155,31 @@ namespace Urho3D
 		return vdStart;
 	}
 	
-	static IBtype CreateMiddleXZVertices(PODVector<asteroid_vertex_data_> &vd, const Vector3 &Size, const IntVector3 &Segment, float y)
+	static IBtype CreateMiddleXZVertices(PODVector<asteroid_triplanar_vertex> &vd, const Vector3 &Size, const IntVector3 &Segment, float y)
 	{
 		const unsigned vdStart = vd.Size();
 		const Vector3 half(Size / 2.0f);
 		for(unsigned zz = 0; zz < Segment.z_ + 1; ++zz)
 		{
-			asteroid_vertex_data_ data;
+			asteroid_triplanar_vertex data;
 			data.position = Vector3(-half.x_, y, -half.z_ + zz * (Size.z_ / Segment.z_));
 			vd.Push(data);
 		}
 		for(unsigned xx = 1; xx < Segment.x_; ++xx)
 		{
-			asteroid_vertex_data_ data;
+			asteroid_triplanar_vertex data;
 			data.position = Vector3(-half.x_ + xx * (Size.x_ / Segment.x_), y, half.z_);
 			vd.Push(data);
 		}
 		for(unsigned zz = 0; zz < Segment.z_ + 1; ++zz)
 		{
-			asteroid_vertex_data_ data;
+			asteroid_triplanar_vertex data;
 			data.position = Vector3(half.x_, y, half.z_ - zz * (Size.z_ / Segment.z_));
 			vd.Push(data);
 		}
 		for(unsigned xx = 1; xx < Segment.x_; ++xx)
 		{
-			asteroid_vertex_data_ data;
+			asteroid_triplanar_vertex data;
 			data.position = Vector3(half.x_ - xx * (Size.x_ / Segment.x_), y, -half.z_);
 			vd.Push(data);
 		}
@@ -190,7 +187,7 @@ namespace Urho3D
 	}
 
 	/*create cube without duplicated vertices*/
-	static void CreateCube(PODVector<asteroid_vertex_data_> &vd, PODVector<IBtype> &id, const Vector3 &Size, const IntVector3 &Segment)
+	static void CreateCube(PODVector<asteroid_triplanar_vertex> &vd, PODVector<IBtype> &id, const Vector3 &Size, const IntVector3 &Segment)
 	{
 		if (Segment.x_ <= 0 || Segment.y_ <= 0 || Segment.z_ <= 0 || Size.x_ <= 0.0f || Size.y_ <= 0.0f || Size.z_ <= 0.0f)
 		{
@@ -253,7 +250,7 @@ namespace Urho3D
 	}
 
 	/*Create sphere without duplicated vertices, github.com/caosdoar/spheres*/
-	static void CreateSphere(PODVector<asteroid_vertex_data_> &vd, PODVector<IBtype> &id, const float radius, const unsigned parallels_count, const unsigned meridians_count)
+	static void CreateSphere(PODVector<asteroid_triplanar_vertex> &vd, PODVector<IBtype> &id, const float radius, const unsigned parallels_count, const unsigned meridians_count)
 	{
 		if (radius <= 0.0f || parallels_count < 3 || meridians_count < 3)
 		{
@@ -277,7 +274,7 @@ namespace Urho3D
 		id.Clear();
 		id.Reserve(numIndices);
 		{
-			asteroid_vertex_data_ north;
+			asteroid_triplanar_vertex north;
 			north.position = Vector3(0.0f, radius, 0.0f);
 			vd.Push(north);
 		}
@@ -294,13 +291,13 @@ namespace Urho3D
 				float const x = sp * ca * radius;
 				float const y = cp * radius;
 				float const z = sp * sa * radius;
-				asteroid_vertex_data_ point;
+				asteroid_triplanar_vertex point;
 				point.position = Vector3(x, y, z);
 				vd.Push(point);
 			}
 		}
 		{
-			asteroid_vertex_data_ south;
+			asteroid_triplanar_vertex south;
 			south.position = Vector3(0.0f, -radius, 0.0f);
 			vd.Push(south);
 		}
@@ -351,49 +348,7 @@ namespace Urho3D
 		}	
 	}
 
-	/*split mesh to 2 parts by a plane; output 2 index buffers, they use the same vertex buffer*/
-	static void SplitMesh(const PODVector<asteroid_vertex_data_> &vd, const PODVector<IBtype> &id, const Plane &p, 
-		Vector< PODVector<IBtype> > &parts)
-	{
-		if(id.Size() % 3)
-		{
-			URHO3D_LOGERROR("SplitCube: size of index buffer mod 3 != 0");
-			return;
-		}
-		const unsigned numTriangles = id.Size() / 3;
-		parts.Resize(2);
-		parts[0].Clear();
-		parts[1].Clear();
-		
-		for(unsigned ii=0; ii<numTriangles; ++ii)
-		{
-			unsigned behindPlane = 0;
-			for(unsigned jj=0; jj<3; ++jj)
-			{
-				if(p.Distance(vd[ id[ii*3 + jj] ].position) < 0.0f)
-				{
-					behindPlane += 1;
-				}
-			}
-
-			if(behindPlane > 2)
-			{
-				for(unsigned jj=0; jj<3; ++jj)
-				{
-					parts[0].Push(id[ii*3 + jj]);
-				}
-			}
-			else
-			{
-				for(unsigned jj=0; jj<3; ++jj)
-				{
-					parts[1].Push(id[ii*3 + jj]);
-				}
-			}
-		}
-	}
-
-	static void cutByPlane(PODVector<asteroid_vertex_data_> &vd, const Plane &p)
+	static void cutByPlane(PODVector<asteroid_triplanar_vertex> &vd, const Plane &p)
 	{
 		for (unsigned ii = 0; ii < vd.Size(); ++ii)
 		{
@@ -404,7 +359,7 @@ namespace Urho3D
 		}
 	}
 
-	static Vector3 calculateCenter(const PODVector<asteroid_vertex_data_> &vd)
+	static Vector3 calculateCenter(const PODVector<asteroid_triplanar_vertex> &vd)
 	{
 		Vector3 ret(Vector3::ZERO);
 		const unsigned sz = vd.Size();
@@ -418,7 +373,7 @@ namespace Urho3D
 		return ret;
 	}
 
-	static void calculateNormal(PODVector<asteroid_vertex_data_> &vd, const PODVector<IBtype> &id)
+	static void calculateNormal(PODVector<asteroid_triplanar_vertex> &vd, const PODVector<IBtype> &id)
 	{
 		if(id.Size() % 3)
 		{
@@ -478,65 +433,12 @@ namespace Urho3D
 		return cnt;
 	}
 
-	static void autoUV(const PODVector<asteroid_vertex_data_> &vd, const PODVector<IBtype> &id,
-		PODVector<asteroid_vertex_data_> &outVd, PODVector<IBtype> &outId)
-	{
-		std::vector<float> vertices, outVertices;
-		std::vector<int> indices, outIndices;
-		std::vector<float> outUv;
-
-		vertices.reserve(vd.Size() * 3);
-		indices.reserve(id.Size());
-		for (unsigned ii = 0; ii < vd.Size(); ++ii)
-		{
-			vertices.push_back(vd[ii].position.x_);
-			vertices.push_back(vd[ii].position.y_);
-			vertices.push_back(vd[ii].position.z_);
-		}
-		for (unsigned ii = 0; ii < id.Size(); ++ii)
-		{
-			indices.push_back(id[ii]);
-		}
-
-		uvMap(vertices, indices, outVertices, outIndices, outUv, nullptr);
-
-		for (unsigned ii = 0; ii < outVertices.size(); ii += 3)
-		{
-			asteroid_vertex_data_ v;
-			v.position = Vector3(outVertices[ii], outVertices[ii + 1], outVertices[ii + 2]);
-			outVd.Push(v);
-		}
-
-		for (unsigned ii = 0; ii < outVd.Size(); ++ii)
-		{
-			outVd[ii].uv = Vector2(outUv[ii * 2], outUv[ii * 2 + 1]);
-		}
-
-		/*recover normal*/
-		for (unsigned ii = 0; ii < outVd.Size(); ++ii)
-		{
-			for (unsigned jj = 0; jj < vd.Size(); ++jj)
-			{
-				if (outVd[ii].position == vd[jj].position)
-				{
-					outVd[ii].normal = vd[jj].normal;
-					break;
-				}
-			}
-		}
-
-		for (unsigned ii = 0; ii < outIndices.size(); ++ii)
-		{
-			outId.Push(outIndices[ii]);
-		}
-	}
-
 	static Model * CreateMesh(Context* ctx, unsigned edge_division)
 	{
 		bool sphereBase = false;
 		if (Random(1.0f) < 0.5f)
 			sphereBase = true;
-		PODVector<asteroid_vertex_data_> vd;
+		PODVector<asteroid_triplanar_vertex> vd;
 		PODVector<IBtype> id;
 		BoundingBox BB;
 		const IntVector3 segment(edge_division, edge_division, edge_division);
@@ -578,6 +480,7 @@ namespace Urho3D
 			}
 		}
 		calculateNormal(vd, id);
+		Vector3 center = calculateCenter(vd);
 
 		/*displace with noise*/
 		{
@@ -613,61 +516,35 @@ namespace Urho3D
 
 		BB = calculateBB(vd);
 		calculateNormal(vd, id);
-		Vector3 center = calculateCenter(vd);
+		center = calculateCenter(vd);
 
-		Vector< PODVector<IBtype> > parts;
-		{
-			Plane split(Vector3::UP, center);
-			SplitMesh(vd, id, split, parts);
-		}
-		
-		Vector< PODVector<asteroid_vertex_data_> > new_parts_vd(parts.Size());
-		Vector< PODVector<IBtype> > new_parts_id(parts.Size());
-		for (unsigned ii = 0; ii < parts.Size(); ++ii)
-		{
-			autoUV(vd, parts[ii], new_parts_vd[ii], new_parts_id[ii]);
-			GenerateTangents(new_parts_vd[ii].Buffer(), sizeof(asteroid_vertex_data_), new_parts_id[ii].Buffer(), sizeof(IBtype), 0, new_parts_id[ii].Size(),
-				offsetof(asteroid_vertex_data_, normal), offsetof(asteroid_vertex_data_, uv), offsetof(asteroid_vertex_data_, tangent));
-		}
+		VertexBuffer * vb(new VertexBuffer(ctx));
+		IndexBuffer * ib(new IndexBuffer(ctx));
+		Geometry * geom(new Geometry(ctx));
+		vb->SetShadowed(true);
+		PODVector<VertexElement> elements;
+		elements.Push(VertexElement(TYPE_VECTOR3, SEM_POSITION));
+		elements.Push(VertexElement(TYPE_VECTOR3, SEM_NORMAL));
+		vb->SetSize(vd.Size(), elements);
+		vb->SetData(vd.Buffer());
 
-		PODVector<Geometry*> geometries;
-		for (unsigned ii = 0; ii < parts.Size(); ++ii)
-		{
-			VertexBuffer * vb(new VertexBuffer(ctx));
-			IndexBuffer * ib(new IndexBuffer(ctx));
-			Geometry * geom(new Geometry(ctx));
-			vb->SetShadowed(true);
-			PODVector<VertexElement> elements;
-			elements.Push(VertexElement(TYPE_VECTOR3, SEM_POSITION));
-			elements.Push(VertexElement(TYPE_VECTOR3, SEM_NORMAL));
-			elements.Push(VertexElement(TYPE_VECTOR4, SEM_TANGENT));
-			elements.Push(VertexElement(TYPE_VECTOR2, SEM_TEXCOORD));
-			vb->SetSize(new_parts_vd[ii].Size(), elements);
-			vb->SetData(new_parts_vd[ii].Buffer());
+		ib->SetShadowed(true);
+		#ifdef DETAIL_ASTEROID_MODEL
+		bool largeIndices = true;
+		#else
+		bool largeIndices = false;
+		#endif
+		ib->SetSize(id.Size(), largeIndices);
+		ib->SetData(id.Buffer());
 
-			ib->SetShadowed(true);
-			#ifdef DETAIL_ASTEROID_MODEL
-			bool largeIndices = true;
-			#else
-			bool largeIndices = false;
-			#endif
-			ib->SetSize(new_parts_id[ii].Size(), largeIndices);
-			ib->SetData(new_parts_id[ii].Buffer());
-
-			geom->SetVertexBuffer(0, vb);
-			geom->SetIndexBuffer(ib);
-			geom->SetDrawRange(TRIANGLE_LIST, 0, new_parts_id[ii].Size());
-			geometries.Push(geom);
-		}
+		geom->SetVertexBuffer(0, vb);
+		geom->SetIndexBuffer(ib);
+		geom->SetDrawRange(TRIANGLE_LIST, 0, id.Size());
 		
 		Model * fromScratchModel(new Model(ctx));
-		fromScratchModel->SetNumGeometries(geometries.Size());
-		for (unsigned ii = 0; ii < geometries.Size(); ++ii)
-		{
-			fromScratchModel->SetGeometry(ii, 0, geometries[ii]);
-		}
+		fromScratchModel->SetNumGeometries(1);
+		fromScratchModel->SetGeometry(0, 0, geom);
 		fromScratchModel->SetBoundingBox(BB);
-		
 
 		return fromScratchModel;
 	}
@@ -770,7 +647,7 @@ namespace Urho3D
 			}
 		}
 
-		const unsigned numCraters = Random(1, 10);
+		const unsigned numCraters = Random(5, 15);
 		for (unsigned ii = 0; ii < numCraters; ++ii)
 		{
 			int centerX = Random(0, size - 1);
@@ -848,7 +725,7 @@ namespace Urho3D
 		return  ret;
 	}
 
-	void CreateAsteroidBlob(Context* ctx, Node * node, unsigned textureSize, unsigned subdivision)
+	void CreateAsteroidBlob_triplanar(Context* ctx, Node * node, unsigned textureSize, unsigned subdivision)
 	{
 		StaticModelGroup * s = node->CreateComponent<StaticModelGroup>();
 		Model * model = CreateMesh(ctx, subdivision);
@@ -863,8 +740,8 @@ namespace Urho3D
 		if (normal == nullptr)
 			return;
 
-		height->SaveBMP("height.bmp");
-		normal->SavePNG("normal.png");
+		height->SaveBMP("height_triplanar.bmp");
+		normal->SavePNG("normal_triplanar.png");
 
 		ResourceCache * cache = ctx->GetSubsystem<ResourceCache>();
 		//SharedPtr <Texture2D> diffTex(cache->GetResource<Texture2D>("Textures/1024x1024 Texel Density Texture 1.png"));
@@ -895,8 +772,8 @@ namespace Urho3D
 
 		Material * m = new Material(ctx);
 		m->SetNumTechniques(2); 
-		m->SetTechnique(0, cache->GetResource<Technique>("Techniques/DiffNormal.xml"), QUALITY_MEDIUM);
-		m->SetTechnique(1, cache->GetResource<Technique>("Techniques/Diff.xml"), QUALITY_LOW);
+		m->SetTechnique(0, cache->GetResource<Technique>("Techniques/DiffNormalTriplanar.xml"), QUALITY_MEDIUM);
+		m->SetTechnique(1, cache->GetResource<Technique>("Techniques/DiffTriplanar.xml"), QUALITY_LOW);
 		m->SetTexture(TU_DIFFUSE, diffTex);
 		m->SetTexture(TU_NORMAL, normalMap);
 		m->SetShaderParameter("MatSpecColor", Vector4(0.3f, 0.3f, 0.3f, 16.0f));

@@ -24,6 +24,7 @@
 #include "FastNoise.h"
 #include "nebula_blob.h"
 #include "asteroid.h"
+#include "asteroid_triplanar.h"
 #include <Urho3D/Urho3DAll.h>
 #include "RenderToTexture.h"
 
@@ -251,26 +252,21 @@ void RenderToTexture::CreateScene()
 #endif
 #if 1
 		Node * ast = scene_->CreateChild("asteroids");
-		PODVector<Color> palette;
-#if 0
-		palette.Push(Color(0.345f, 0.086f, 0.086f));
-		palette.Push(Color(0.654f, 0.282f, 0.031f));
-		palette.Push(Color(0.411f, 0.101f, 0.101f));
-		palette.Push(Color(0.529f, 0.050f, 0.050f));
-		palette.Push(Color(0.8f, 0.470f, 0.062f));
-#else
-		palette.Push(Color(0.352f, 0.333f, 0.298f));
-		palette.Push(Color(0.462f, 0.462f, 0.462f));
-		palette.Push(Color(0.576f, 0.572f, 0.549f));
-		palette.Push(Color(0.211f, 0.176f, 0.003f));
-#endif
-		CreateAsteroidBlob(context_, ast, 256, palette, 20);
+		CreateAsteroidBlob(context_, ast, 256, 20);
 		StaticModelGroup * smg = ast->GetComponent<StaticModelGroup>();
 		Node * ast1 = scene_->CreateChild("asteroid");
 		ast1->SetPosition(Vector3(-20.5f, 40.0f, 20.5f));
 		ast1->SetScale(10.0f);
 		smg->AddInstanceNode(ast1);
 #endif
+
+		Node * ast_triplanar = scene_->CreateChild("asteroids_triplanar");
+		CreateAsteroidBlob_triplanar(context_, ast_triplanar, 256, 20);
+		StaticModelGroup * smg_triplanar = ast_triplanar->GetComponent<StaticModelGroup>();
+		Node * ast_triplanar1 = scene_->CreateChild("asteroid triplanar");
+		ast_triplanar1->SetPosition(Vector3(-50.5f, 40.0f, 20.5f));
+		ast_triplanar1->SetScale(10.0f);
+		smg_triplanar->AddInstanceNode(ast_triplanar1);
 #if 0
 		SharedPtr <Texture3D> perlin3D(MakeShared<Texture3D>(context_));
 		perlin3D->SetNumLevels(1);

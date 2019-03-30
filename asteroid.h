@@ -3,6 +3,6 @@
 
 namespace Urho3D
 {
-	void CreateAsteroidBlob(Context* ctx, Node * node, unsigned textureSize, const PODVector<Color> &palette, unsigned subdivision);
+	void CreateAsteroidBlob(Context* ctx, Node * node, unsigned textureSize, unsigned subdivision);
 }		/*namespace Urho3D*/
 
