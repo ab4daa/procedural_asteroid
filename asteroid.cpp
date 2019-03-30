@@ -1,7 +1,6 @@
 #include <vector>
 #include "uv_mapper.hpp"
 #include "FastNoise.h"
-#include "rock_texture.h"
 #include "asteroid.h"
 #include <Urho3D/Urho3DAll.h>
 
@@ -352,46 +351,6 @@ namespace Urho3D
 		}	
 	}
 
-	/*cut north pole and a round of triangles*/
-	static void SplitSphere(const PODVector<asteroid_vertex_data_> &vd, const PODVector<IBtype> &id, const unsigned parallels_count, const unsigned meridians_count, 
-		Vector< PODVector<IBtype> > &parts)
-	{
-		const unsigned numIndicesOfNorth = meridians_count * 3 + meridians_count * 6;
-		parts.Resize(2);
-		parts[0].Clear();
-		parts[1].Clear();
-		parts[0].Reserve(numIndicesOfNorth);
-		parts[1].Reserve(id.Size() - numIndicesOfNorth);
-		for (unsigned ii = 0; ii < numIndicesOfNorth; ++ii)
-		{
-			parts[0].Push(id[ii]);
-		}
-		for (unsigned ii = numIndicesOfNorth; ii < id.Size(); ++ii)
-		{
-			parts[1].Push(id[ii]);
-		}
-	}
-
-	/*split cube bottom plane*/
-	static void SplitCubeBottom(const PODVector<asteroid_vertex_data_> &vd, const PODVector<IBtype> &id, const IntVector3 &Segment, 
-		Vector< PODVector<IBtype> > &parts)
-	{
-		const unsigned numIndicesOfBottom = Segment.x_ * Segment.z_ * 2 * 3;
-		parts.Resize(2);
-		parts[0].Clear();
-		parts[1].Clear();
-		parts[0].Reserve(numIndicesOfBottom);
-		parts[1].Reserve(id.Size() - numIndicesOfBottom);
-		for (unsigned ii = 0; ii < numIndicesOfBottom; ++ii)
-		{
-			parts[0].Push(id[ii]);
-		}
-		for (unsigned ii = numIndicesOfBottom; ii < id.Size(); ++ii)
-		{
-			parts[1].Push(id[ii]);
-		}
-	}
-
 	/*split mesh to 2 parts by a plane; output 2 index buffers, they use the same vertex buffer*/
 	static void SplitMesh(const PODVector<asteroid_vertex_data_> &vd, const PODVector<IBtype> &id, const Plane &p, 
 		Vector< PODVector<IBtype> > &parts)
@@ -621,38 +580,32 @@ namespace Urho3D
 		calculateNormal(vd, id);
 
 		/*displace with noise*/
-		FastNoise *cellular = new FastNoise(Random(0, M_MAX_UNSIGNED));
-		cellular->SetFrequency(0.02f);
-		cellular->SetCellularReturnType(FastNoise::Distance);
+		FastNoise *perlin = new FastNoise(Random(0, M_MAX_UNSIGNED));
+		perlin->SetFrequency(0.02f);
 		const Vector3 noiseScale(200.0f, 200.0f, 200.0f);
 		for (unsigned ii = 0; ii < vd.Size(); ++ii)
 		{
 			Vector3 p(vd[ii].position * noiseScale);
-			float displace = cellular->GetPerlinFractal(p.x_, p.y_, p.z_) / Random(5.0f, 8.0f);
+			float displace = perlin->GetPerlinFractal(p.x_, p.y_, p.z_) / Random(5.0f, 8.0f);
 			vd[ii].position = vd[ii].position + displace * vd[ii].normal;
 		}
-		delete cellular;
+		delete perlin;
 
 		BB = calculateBB(vd);
 		calculateNormal(vd, id);
 		Vector3 center = calculateCenter(vd);
 
 		Vector< PODVector<IBtype> > parts;
-#if 0
-		SplitCubeBottom(vd, id, segment, parts);
-#else
 		{
 			Plane split(Vector3::UP, center);
 			SplitMesh(vd, id, split, parts);
 		}
-#endif
 		
 		Vector< PODVector<asteroid_vertex_data_> > new_parts_vd(parts.Size());
 		Vector< PODVector<IBtype> > new_parts_id(parts.Size());
 		for (unsigned ii = 0; ii < parts.Size(); ++ii)
 		{
 			autoUV(vd, parts[ii], new_parts_vd[ii], new_parts_id[ii]);
-			//CalculateTangentArray(new_parts_vd[ii], new_parts_id[ii]);
 			GenerateTangents(new_parts_vd[ii].Buffer(), sizeof(asteroid_vertex_data_), new_parts_id[ii].Buffer(), sizeof(IBtype), 0, new_parts_id[ii].Size(),
 				offsetof(asteroid_vertex_data_, normal), offsetof(asteroid_vertex_data_, uv), offsetof(asteroid_vertex_data_, tangent));
 		}
@@ -697,35 +650,6 @@ namespace Urho3D
 		
 
 		return fromScratchModel;
-	}
-
-	static float sampleHeightMap(int x, int y, const Image * heightMap)
-	{
-		const int w = heightMap->GetWidth();
-		const int h = heightMap->GetHeight();
-
-		if(x < 0)
-		{
-			x = -x;
-		}
-		else if(x >= w)
-		{
-			x = w - 1 - (x-w+1);
-		}
-
-		if(y < 0)
-		{
-			y = -y;
-		}
-		else if(y >= h)
-		{
-			y = h - 1 - (y-h+1);
-		}		
-
-		if(x >= 0 && x < w && y >= 0 && y < h)
-			return heightMap->GetPixel(x, y).r_;
-		else
-			return 0.0f;
 	}
 
 	// github.com/cpetry/NormalMap-Online
@@ -807,63 +731,6 @@ namespace Urho3D
 		}
 
 		return ret;
-	}
-
-	// stackoverflow.com/questions/5281261/generating-a-normal-map-from-a-height-map
-	static Image * CalculateBumpMapFromHeight(Context* ctx, const Image * heightMap)
-	{
-		const int w = heightMap->GetWidth();
-		const int h = heightMap->GetHeight();
-
-		Image * ret = new Image(ctx);
-		if (ret->SetSize(w, h, 3) == false)
-		{
-			URHO3D_LOGERROR("CalculateBumpMapFromHeight: Image::SetSize fail");
-			delete ret;
-			return nullptr;
-		}
-
-		for (int x = 0; x < w; ++x)
-		{
-			for (int y = 0; y < h; ++y)
-			{
-				float s01 = sampleHeightMap(x - 1, y, heightMap);
-				float s21 = sampleHeightMap(x + 1, y, heightMap);
-				float s10 = sampleHeightMap(x, y - 1, heightMap);
-				float s12 = sampleHeightMap(x, y + 1, heightMap);
-				Vector3 va(2.0f, 0.0f, s21 - s01);
-				Vector3 vb(0.0f, 2.0f, s12 - s10);
-				Vector3 bump(va.CrossProduct(vb));
-				ret->SetPixel(x, y, Color(bump.x_, bump.y_, bump.z_));
-			}
-		}
-
-		return ret;
-	}
-
-	static Image * CalculateBumpMap(Context* ctx, const Image * diffuse)
-	{
-		const int w = diffuse->GetWidth();
-		const int h = diffuse->GetHeight();
-		/*create height map from L of HSL color space*/
-		SharedPtr<Image> heightMap = MakeShared<Image>(ctx);
-		if(heightMap->SetSize(w, h, 1) == false)
-		{
-			URHO3D_LOGERROR("CalculateBumpMap: Image::SetSize fail");
-			return nullptr;
-		}
-
-		for(int x=0; x<w; ++x)
-		{
-			for(int y=0; y<h; ++y)
-			{
-				Color c = diffuse->GetPixel(x, y);
-				Vector3 hsl = c.ToHSL();
-				heightMap->SetPixel(x, y, Color(hsl.z_, hsl.z_, hsl.z_, hsl.z_));
-			}
-		}
-
-		return CalculateBumpMapFromHeight(ctx, heightMap);
 	}
 
 	static Image * CreateCraterHeightMap(Context* ctx, int size)
@@ -967,14 +834,7 @@ namespace Urho3D
 		Model * model = CreateMesh(ctx, subdivision);
 		if (model != nullptr)
 			s->SetModel(model);
-#if 0
-		SharedPtr<Image> diffuse(MakeShared<Image>(ctx));
-		if (diffuse->LoadFile("Textures/StoneDiffuse.dds") == false)
-		{
-			URHO3D_LOGERROR(String("diffuse->LoadFile fail"));
-			return;
-		}
-#endif
+
 		SharedPtr<Image> height(CreateCraterHeightMap(ctx, textureSize));
 		if (height == nullptr)
 			return;
