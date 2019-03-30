@@ -57,7 +57,7 @@ static void addDebugArrow(Urho3D::DebugRenderer * r, const Urho3D::Vector3 &from
 }
 
 static const StringHash TEXTURECUBE_SIZE("TEXTURECUBE SIZE");
-static const Vector3 default_light_dir(0.5f, -1.0f, 0.5f);
+static const Vector3 default_light_dir(-1.0f, -1.0f, -1.0f);
 static const Color default_light_color(0.2f, 0.2f, 0.2f);
 
 URHO3D_DEFINE_APPLICATION_MAIN(RenderToTexture)
@@ -111,7 +111,7 @@ void RenderToTexture::CreateScene()
         Node* zoneNode = scene_->CreateChild("Zone");
         auto* zone = zoneNode->CreateComponent<Zone>();
         zone->SetBoundingBox(BoundingBox(-1000.0f, 1000.0f));
-        zone->SetAmbientColor(Color(0.3f, 0.3f, 0.3f));
+        zone->SetAmbientColor(Color(0.1f, 0.1f, 0.1f));
         zone->SetFogStart(500.0f);
         zone->SetFogEnd(800.0f);
 
@@ -252,16 +252,23 @@ void RenderToTexture::CreateScene()
 #if 1
 		Node * ast = scene_->CreateChild("asteroids");
 		PODVector<Color> palette;
+#if 0
 		palette.Push(Color(0.345f, 0.086f, 0.086f));
 		palette.Push(Color(0.654f, 0.282f, 0.031f));
 		palette.Push(Color(0.411f, 0.101f, 0.101f));
 		palette.Push(Color(0.529f, 0.050f, 0.050f));
 		palette.Push(Color(0.8f, 0.470f, 0.062f));
+#else
+		palette.Push(Color(0.352f, 0.333f, 0.298f));
+		palette.Push(Color(0.462f, 0.462f, 0.462f));
+		palette.Push(Color(0.576f, 0.572f, 0.549f));
+		palette.Push(Color(0.211f, 0.176f, 0.003f));
+#endif
 		CreateAsteroidBlob(context_, ast, 256, palette, 20);
 		StaticModelGroup * smg = ast->GetComponent<StaticModelGroup>();
 		Node * ast1 = scene_->CreateChild("asteroid");
 		ast1->SetPosition(Vector3(-20.5f, 40.0f, 20.5f));
-		ast1->SetScale(20.0f);
+		ast1->SetScale(10.0f);
 		smg->AddInstanceNode(ast1);
 #endif
 #if 0

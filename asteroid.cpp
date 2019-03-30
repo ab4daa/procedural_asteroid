@@ -572,80 +572,17 @@ namespace Urho3D
 		}
 	}
 
-	/* Lengyel, Eric. “Computing Tangent Space Basis Vectors for an Arbitrary Mesh”. Terathon Software, 2001. http://terathon.com/code/tangent.html */
-	static void CalculateTangentArray(PODVector<asteroid_vertex_data_> &vd, const PODVector<IBtype> &id)
-	{
-		Vector<Vector3> tan1, tan2;
-		tan1.Resize(vd.Size());
-		tan2.Resize(vd.Size());
-
-		for(unsigned a=0; a<id.Size(); a+=3)
-		{
-			IBtype i1 = id[a];
-			IBtype i2 = id[a+1];
-			IBtype i3 = id[a+2];
-
-			const Vector3 &v1 = vd[i1].position;
-			const Vector3 &v2 = vd[i2].position;
-			const Vector3 &v3 = vd[i3].position;
-
-			const Vector2 &w1 = vd[i1].uv;
-			const Vector2 &w2 = vd[i2].uv;
-			const Vector2 &w3 = vd[i3].uv;
-
-			float x1 = v2.x_ - v1.x_;
-			float x2 = v3.x_ - v1.x_;
-			float y1 = v2.y_ - v1.y_;
-			float y2 = v3.y_ - v1.y_;
-			float z1 = v2.z_ - v1.z_;
-			float z2 = v3.z_ - v1.z_;
-
-			float s1 = w2.x_ - w1.x_;
-			float s2 = w3.x_ - w1.x_;
-			float t1 = w2.y_ - w1.y_;
-			float t2 = w3.y_ - w1.y_;
-
-			float r = 1.0f / (s1 * t2 - s2 * t1);
-			Vector3 sdir((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r,
-                (t2 * z1 - t1 * z2) * r);
-        	Vector3 tdir((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r,
-                (s1 * z2 - s2 * z1) * r);
-
-			tan1[i1] += sdir;
-			tan1[i2] += sdir;
-			tan1[i3] += sdir;
-			
-			tan2[i1] += tdir;
-			tan2[i2] += tdir;
-			tan2[i3] += tdir;
-		}
-
-		for(unsigned a=0; a<vd.Size(); ++a)
-		{
-			const Vector3 &n = vd[a].normal;
-			const Vector3 &t = tan1[a];
-
-			// Gram-Schmidt orthogonalize
-        	Vector3 tan3((t - n * (n.DotProduct(t))).Normalized());
-
-			// Calculate handedness
-			float w = (n.CrossProduct(t)).DotProduct(tan2[a]) < 0.0f ? -1.0f : 1.0f;
-
-			vd[a].tangent = Vector4(tan3, w);
-		}
-	}
-
 	static Model * CreateMesh(Context* ctx, unsigned edge_division)
 	{
-		bool useSphere = false;
+		bool sphereBase = false;
 		if (Random(1.0f) < 0.5f)
-			useSphere = true;
+			sphereBase = true;
 		PODVector<asteroid_vertex_data_> vd;
 		PODVector<IBtype> id;
 		BoundingBox BB;
 		const IntVector3 segment(edge_division, edge_division, edge_division);
 		
-		if(useSphere)
+		if(sphereBase)
 			CreateSphere(vd, id, 0.5f, edge_division/2, edge_division);
 		else
 			CreateCube(vd, id, Vector3::ONE, segment);
@@ -691,10 +628,11 @@ namespace Urho3D
 		for (unsigned ii = 0; ii < vd.Size(); ++ii)
 		{
 			Vector3 p(vd[ii].position * noiseScale);
-			float displace = cellular->GetCellular(p.x_, p.y_, p.z_) / 4.0f;
+			float displace = cellular->GetPerlinFractal(p.x_, p.y_, p.z_) / Random(5.0f, 8.0f);
 			vd[ii].position = vd[ii].position + displace * vd[ii].normal;
 		}
 		delete cellular;
+
 		BB = calculateBB(vd);
 		calculateNormal(vd, id);
 		Vector3 center = calculateCenter(vd);
@@ -714,6 +652,9 @@ namespace Urho3D
 		for (unsigned ii = 0; ii < parts.Size(); ++ii)
 		{
 			autoUV(vd, parts[ii], new_parts_vd[ii], new_parts_id[ii]);
+			//CalculateTangentArray(new_parts_vd[ii], new_parts_id[ii]);
+			GenerateTangents(new_parts_vd[ii].Buffer(), sizeof(asteroid_vertex_data_), new_parts_id[ii].Buffer(), sizeof(IBtype), 0, new_parts_id[ii].Size(),
+				offsetof(asteroid_vertex_data_, normal), offsetof(asteroid_vertex_data_, uv), offsetof(asteroid_vertex_data_, tangent));
 		}
 
 		PODVector<Geometry*> geometries;
@@ -787,7 +728,119 @@ namespace Urho3D
 			return 0.0f;
 	}
 
+	// github.com/cpetry/NormalMap-Online
+	static Image * CalculateNormalMapFromHeight(Context* ctx, const Image * heightMap)
+	{
+		const int w = heightMap->GetWidth();
+		const int h = heightMap->GetHeight();
+
+		Image * ret = new Image(ctx);
+		if (ret->SetSize(w, h, 4) == false)
+		{
+			URHO3D_LOGERROR("CalculateNormalMapFromHeight: Image::SetSize fail");
+			delete ret;
+			return nullptr;
+		}
+
+		const float Strength = 2.5f;
+		const float Level = 7.0f;
+
+		const int type = 0;
+		//webgl setting default is [1,1,-1]
+		const float invertR = 1.0f;		//-1 or 1
+		const float invertG = 1.0f;		//-1 or 1
+		const float invertH = -1.0f;		//-1 or 1
+		Vector2 step(-1.0f / w, -1.0f / h);
+		float dz = (1.0f / Strength) * (1.0f + Pow(2.0f, Level));
+		for (int x = 0; x < w; ++x)
+		{
+			for (int y = 0; y < h; ++y)
+			{
+				Vector2 vUv((float)x/w, (float)y/h);
+				Vector2 tlv = Vector2(vUv.x_ - step.x_, vUv.y_ + step.y_);
+				Vector2 lv = Vector2(vUv.x_ - step.x_, vUv.y_);
+				Vector2 blv = Vector2(vUv.x_ - step.x_, vUv.y_ - step.y_);
+				Vector2 tv = Vector2(vUv.x_, vUv.y_ + step.y_);
+				Vector2 bv = Vector2(vUv.x_, vUv.y_ - step.y_);
+				Vector2 trv = Vector2(vUv.x_ + step.x_, vUv.y_ + step.y_);
+				Vector2 rv = Vector2(vUv.x_ + step.x_, vUv.y_);
+				Vector2 brv = Vector2(vUv.x_ + step.x_, vUv.y_ - step.y_);
+				tlv = Vector2(tlv.x_ >= 0.0 ? tlv.x_ : (1.0f + tlv.x_), tlv.y_ >= 0.0f ? tlv.y_ : (1.0f + tlv.y_));
+				tlv = Vector2(tlv.x_ < 1.0f ? tlv.x_ : (tlv.x_ - 1.0f), tlv.y_ < 1.0f ? tlv.y_ : (tlv.y_ - 1.0f));
+				lv = Vector2(lv.x_ >= 0.0f ? lv.x_ : (1.0f + lv.x_), lv.y_ >= 0.0f ? lv.y_ : (1.0f + lv.y_));
+				lv = Vector2(lv.x_ < 1.0f ? lv.x_ : (lv.x_ - 1.0f), lv.y_ < 1.0f ? lv.y_ : (lv.y_ - 1.0f));
+				blv = Vector2(blv.x_ >= 0.0f ? blv.x_ : (1.0f + blv.x_), blv.y_ >= 0.0f ? blv.y_ : (1.0f + blv.y_));
+				blv = Vector2(blv.x_ < 1.0f ? blv.x_ : (blv.x_ - 1.0f), blv.y_ < 1.0f ? blv.y_ : (blv.y_ - 1.0f));
+				tv = Vector2(tv.x_ >= 0.0f ? tv.x_ : (1.0f + tv.x_), tv.y_ >= 0.0f ? tv.y_ : (1.0f + tv.y_));
+				tv = Vector2(tv.x_ < 1.0f ? tv.x_ : (tv.x_ - 1.0f), tv.y_ < 1.0f ? tv.y_ : (tv.y_ - 1.0f));
+				bv = Vector2(bv.x_ >= 0.0f ? bv.x_ : (1.0f + bv.x_), bv.y_ >= 0.0f ? bv.y_ : (1.0f + bv.y_));
+				bv = Vector2(bv.x_ < 1.0f ? bv.x_ : (bv.x_ - 1.0f), bv.y_ < 1.0f ? bv.y_ : (bv.y_ - 1.0f));
+				trv = Vector2(trv.x_ >= 0.0f ? trv.x_ : (1.0f + trv.x_), trv.y_ >= 0.0f ? trv.y_ : (1.0f + trv.y_));
+				trv = Vector2(trv.x_ < 1.0f ? trv.x_ : (trv.x_ - 1.0f), trv.y_ < 1.0f ? trv.y_ : (trv.y_ - 1.0f));
+				rv = Vector2(rv.x_ >= 0.0f ? rv.x_ : (1.0f + rv.x_), rv.y_ >= 0.0f ? rv.y_ : (1.0f + rv.y_));
+				rv = Vector2(rv.x_ < 1.0f ? rv.x_ : (rv.x_ - 1.0f), rv.y_ < 1.0f ? rv.y_ : (rv.y_ - 1.0f));
+				brv = Vector2(brv.x_ >= 0.0f ? brv.x_ : (1.0f + brv.x_), brv.y_ >= 0.0f ? brv.y_ : (1.0f + brv.y_));
+				brv = Vector2(brv.x_ < 1.0f ? brv.x_ : (brv.x_ - 1.0f), brv.y_ < 1.0f ? brv.y_ : (brv.y_ - 1.0f));
+
+				float tl = Abs(heightMap->GetPixelBilinear(tlv.x_, tlv.y_).r_);
+				float l = Abs(heightMap->GetPixelBilinear(lv.x_, lv.y_).r_);
+				float bl = Abs(heightMap->GetPixelBilinear(blv.x_, blv.y_).r_);
+				float t = Abs(heightMap->GetPixelBilinear(tv.x_, tv.y_).r_);
+				float b = Abs(heightMap->GetPixelBilinear(bv.x_, bv.y_).r_);
+				float tr = Abs(heightMap->GetPixelBilinear(trv.x_, trv.y_).r_);
+				float r = Abs(heightMap->GetPixelBilinear(rv.x_, rv.y_).r_);
+				float br = Abs(heightMap->GetPixelBilinear(brv.x_, brv.y_).r_);
+				
+				float dx = 0.0f, dy = 0.0f;
+				if (type == 0) {	// Sobel
+					dx = tl + l * 2.0 + bl - tr - r * 2.0 - br;
+					dy = tl + t * 2.0 + tr - bl - b * 2.0 - br;
+				}
+				else {				// Scharr
+					dx = tl * 3.0 + l * 10.0 + bl * 3.0 - tr * 3.0 - r * 10.0 - br * 3.0;
+					dy = tl * 3.0 + t * 10.0 + tr * 3.0 - bl * 3.0 - b * 10.0 - br * 3.0;
+				}
+				Vector4 normal(Vector3(dx * invertR * invertH * 255.0f, dy * invertG * invertH * 255.0f, dz).Normalized(), heightMap->GetPixelBilinear(vUv.x_, vUv.y_).a_);
+				Color gl_FragColor(normal.x_ * 0.5f + 0.5f, normal.y_ * 0.5f + 0.5f, normal.z_, normal.w_);
+				ret->SetPixel(x, y, gl_FragColor);
+			}
+		}
+
+		return ret;
+	}
+
 	// stackoverflow.com/questions/5281261/generating-a-normal-map-from-a-height-map
+	static Image * CalculateBumpMapFromHeight(Context* ctx, const Image * heightMap)
+	{
+		const int w = heightMap->GetWidth();
+		const int h = heightMap->GetHeight();
+
+		Image * ret = new Image(ctx);
+		if (ret->SetSize(w, h, 3) == false)
+		{
+			URHO3D_LOGERROR("CalculateBumpMapFromHeight: Image::SetSize fail");
+			delete ret;
+			return nullptr;
+		}
+
+		for (int x = 0; x < w; ++x)
+		{
+			for (int y = 0; y < h; ++y)
+			{
+				float s01 = sampleHeightMap(x - 1, y, heightMap);
+				float s21 = sampleHeightMap(x + 1, y, heightMap);
+				float s10 = sampleHeightMap(x, y - 1, heightMap);
+				float s12 = sampleHeightMap(x, y + 1, heightMap);
+				Vector3 va(2.0f, 0.0f, s21 - s01);
+				Vector3 vb(0.0f, 2.0f, s12 - s10);
+				Vector3 bump(va.CrossProduct(vb));
+				ret->SetPixel(x, y, Color(bump.x_, bump.y_, bump.z_));
+			}
+		}
+
+		return ret;
+	}
+
 	static Image * CalculateBumpMap(Context* ctx, const Image * diffuse)
 	{
 		const int w = diffuse->GetWidth();
@@ -810,60 +863,15 @@ namespace Urho3D
 			}
 		}
 
-		Image * ret = new Image(ctx);
-		if(ret->SetSize(w, h, 3) == false)
-		{
-			URHO3D_LOGERROR("CalculateBumpMap: Image::SetSize fail");
-			delete ret;
-			return nullptr;
-		}
-
-		for(int x=0; x<w; ++x)
-		{
-			for(int y=0; y<h; ++y)
-			{
-				float s01 = sampleHeightMap(x-1, y, heightMap);
-				float s21 = sampleHeightMap(x+1, y, heightMap);
-				float s10 = sampleHeightMap(x, y-1, heightMap);
-				float s12 = sampleHeightMap(x, y+1, heightMap);
-				Vector3 va(2.0f, 0.0f, s21-s01);
-				Vector3 vb(0.0f, 2.0f, s12-s10);
-				Vector3 bump(va.CrossProduct(vb));
-				ret->SetPixel(x, y, Color(bump.x_, bump.y_, bump.z_));
-			}
-		}
-
-		return ret;
+		return CalculateBumpMapFromHeight(ctx, heightMap);
 	}
 
-	static Color averageColors(const PODVector<Color> &colors)
+	static Image * CreateCraterHeightMap(Context* ctx, int size)
 	{
-		Vector4 sum;
-
-		for(unsigned ii=0; ii<colors.Size(); ++ii)
-		{
-			Vector4 v = colors[ii].ToVector4();
-			sum += v * v;
-		}
-
-		sum = sum / colors.Size();
-		return Color(Sqrt(sum.x_), Sqrt(sum.y_), Sqrt(sum.z_), Sqrt(sum.w_));
-	}
-
-	static Image * CreateDiffuse(Context* ctx, unsigned size, const PODVector<Color> &colors)
-	{
-		rock_tex::RockTexture tex;
-		for (unsigned ii = 0; ii < colors.Size(); ++ii)
-		{
-			rock_tex::color_t c {colors[ii].r_, colors[ii].g_ , colors[ii].b_ };
-			tex.palette.push_back(c);
-		}
-		tex.generate(size);
 		Image * ret = new Image(ctx);
-		if (ret->SetSize(size, size, 3) == false)
+		if (ret->SetSize(size, size, 1) == false)
 		{
-			URHO3D_LOGERROR("CreateDiffuse: Image::SetSize fail");
-			delete ret;
+			URHO3D_LOGERROR("CreateCraterHeightMap: Image::SetSize fail");
 			return nullptr;
 		}
 
@@ -871,10 +879,86 @@ namespace Urho3D
 		{
 			for (unsigned y = 0; y < size; ++y)
 			{
-				ret->SetPixel(x, y, Color(tex.data_[x][y].r, tex.data_[x][y].g, tex.data_[x][y].b));
+				ret->SetPixel(x, y, Color(0.5f, 0.5f, 0.5f, 0.5f));
 			}
 		}
-		return ret;
+
+		const unsigned numCraters = Random(5, 20);
+		for (unsigned ii = 0; ii < numCraters; ++ii)
+		{
+			int centerX = Random(0, size - 1);
+			int centerY = Random(0, size - 1);
+			float radius = Random(5.0f, 30.0f);
+			for (int x = 0; x < size; ++x)
+			{
+				for (int y = 0; y < size; ++y)
+				{
+					int sqrX = (x - centerX) * (x - centerX);
+					int sqrY = (y - centerY) * (y - centerY);
+					const float ring = 4;
+					if (sqrX + sqrY <= radius * radius)
+					{
+						float cosTheta = Sqrt((float)sqrX + sqrY) / radius;
+						float sinTheta = Sqrt(1.0f - cosTheta * cosTheta);
+						float deepness = sinTheta * 0.5f;		//radius * sinTheta * 0.5f / radius 
+						ret->SetPixel(x, y, Color(0.5f - deepness, 0.5f - deepness, 0.5f - deepness, 0.5f - deepness));
+					}
+#if 0
+					else if (sqrX + sqrY <= (radius + ring) * (radius + ring))
+					{
+						float d = (radius + ring) - Sqrt((float)sqrX + sqrY);
+						float highness = Sin(d / ring * 180.0f);
+						ret->SetPixel(x, y, Color(0.5f + highness, 0.5f + highness, 0.5f + highness, 0.5f + highness));
+					}
+#endif
+				}
+			}
+		}
+		/*add shallow roughness*/
+		FastNoise *cell = new FastNoise(Random(0, M_MAX_UNSIGNED));
+		float **Layer = new float *[size];
+		for (unsigned ii = 0; ii < size; ++ii)
+			Layer[ii] = new float[size];
+
+		float max = 0.0f, min = 0.0f;
+		for (unsigned x = 0; x < size; ++x)
+		{
+			for (unsigned y = 0; y < size; ++y)
+			{
+				Layer[x][y] = cell->GetWhiteNoise(x, y);
+				if (Layer[x][y] > max)
+					max = Layer[x][y];
+				if (Layer[x][y] < min)
+					min = Layer[x][y];
+			}
+		}
+		delete cell;
+		/*normalize to [0, 1]*/
+		for (unsigned x = 0; x < size; ++x)
+		{
+			for (unsigned y = 0; y < size; ++y)
+			{
+				Layer[x][y] = (Layer[x][y] - min) / (max - min);
+			}
+		}
+
+		const float roughnessFactor = 0.1f;
+		for (int x = 0; x < size; ++x)
+		{
+			for (int y = 0; y < size; ++y)
+			{
+				Color c = ret->GetPixel(x, y);
+				float rough = (Layer[x][y] - 0.5f) * roughnessFactor;
+				Color r(rough, rough, rough, rough);
+				c += r;
+				ret->SetPixel(x, y, c);
+			}
+		}
+
+		for (unsigned ii = 0; ii < size; ++ii)
+			delete[] Layer[ii];
+		delete[] Layer;
+		return  ret;
 	}
 
 	void CreateAsteroidBlob(Context* ctx, Node * node, unsigned textureSize, const PODVector<Color> &palette, unsigned subdivision)
@@ -883,25 +967,60 @@ namespace Urho3D
 		Model * model = CreateMesh(ctx, subdivision);
 		if (model != nullptr)
 			s->SetModel(model);
-
-		SharedPtr<Image> diffuse(CreateDiffuse(ctx, textureSize, palette));
-		if (diffuse == nullptr)
-			return;
-
-		SharedPtr <Texture2D> diffTex(MakeShared<Texture2D>(ctx));
-		diffTex->SetNumLevels(1);
-		if (diffTex->SetSize(textureSize, textureSize, Graphics::GetRGBAFormat(), TEXTURE_DYNAMIC) == false)
+#if 0
+		SharedPtr<Image> diffuse(MakeShared<Image>(ctx));
+		if (diffuse->LoadFile("Textures/StoneDiffuse.dds") == false)
 		{
-			URHO3D_LOGERROR(String("diffTex->SetSize fail"));
+			URHO3D_LOGERROR(String("diffuse->LoadFile fail"));
 			return;
 		}
-		diffTex->SetData(diffuse, false);
+#endif
+		SharedPtr<Image> height(CreateCraterHeightMap(ctx, textureSize));
+		if (height == nullptr)
+			return;
+
+		SharedPtr<Image> normal(CalculateNormalMapFromHeight(ctx, height));
+		if (normal == nullptr)
+			return;
+
+		height->SaveBMP("height.bmp");
+		normal->SavePNG("normal.png");
 
 		ResourceCache * cache = ctx->GetSubsystem<ResourceCache>();
+		//SharedPtr <Texture2D> diffTex(cache->GetResource<Texture2D>("Textures/1024x1024 Texel Density Texture 1.png"));
+		SharedPtr <Texture2D> diffTex(cache->GetResource<Texture2D>("Textures/StoneDiffuse.dds"));
+		if (diffTex == nullptr)
+		{
+			URHO3D_LOGERROR(String("diffTex->LoadFile fail"));
+			return;
+		}
+
+#if 1
+		SharedPtr <Texture2D> normalMap(MakeShared<Texture2D>(ctx));
+		normalMap->SetNumLevels(1);
+		if (normalMap->SetSize(textureSize, textureSize, Graphics::GetRGBAFormat(), TEXTURE_DYNAMIC) == false)
+		{
+			URHO3D_LOGERROR(String("normalMap->SetSize fail"));
+			return;
+		}
+		normalMap->SetData(normal, true);
+#else
+		SharedPtr <Texture2D> normalMap(cache->GetResource<Texture2D>("Textures/NormalMap.png"));
+		if (diffTex == nullptr)
+		{
+			URHO3D_LOGERROR(String("normalMap->LoadFile fail"));
+			return;
+		}
+#endif
+
 		Material * m = new Material(ctx);
-		m->SetNumTechniques(1);
-		m->SetTechnique(0, cache->GetResource<Technique>("Techniques/Diff.xml"), QUALITY_MAX);
+		m->SetNumTechniques(2); 
+		m->SetTechnique(0, cache->GetResource<Technique>("Techniques/DiffNormal.xml"), QUALITY_MEDIUM);
+		m->SetTechnique(1, cache->GetResource<Technique>("Techniques/Diff.xml"), QUALITY_LOW);
 		m->SetTexture(TU_DIFFUSE, diffTex);
+		m->SetTexture(TU_NORMAL, normalMap);
+		m->SetShaderParameter("MatSpecColor", Vector4(0.3f, 0.3f, 0.3f, 16.0f));
+
 		s->SetMaterial(m);
 	}
 }
