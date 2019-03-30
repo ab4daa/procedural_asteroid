@@ -586,7 +586,7 @@ namespace Urho3D
 			FastNoise *perlin = new FastNoise(Random(0, M_MAX_UNSIGNED));
 			perlin->SetFrequency(Random(0.01f, 0.03f));
 			const float noiseScale = Random(100.0f, 200.0f);
-			const float noiseFactor = Random(0.1f, 0.3f);
+			const float noiseFactor = Random(0.05f, 0.2f);
 			float noiseMax = FLT_MIN, noiseMin = FLT_MAX;
 			for (unsigned ii = 0; ii < vd.Size(); ++ii)
 			{
@@ -848,7 +848,7 @@ namespace Urho3D
 		return  ret;
 	}
 
-	void CreateAsteroidBlob(Context* ctx, Node * node, unsigned textureSize, unsigned subdivision)
+	void CreateAsteroidBlob(Context* ctx, Node * node, unsigned textureSize, unsigned subdivision, const Vector<String> &diffusePaths)
 	{
 		StaticModelGroup * s = node->CreateComponent<StaticModelGroup>();
 		Model * model = CreateMesh(ctx, subdivision);
@@ -867,8 +867,7 @@ namespace Urho3D
 		normal->SavePNG("normal.png");
 
 		ResourceCache * cache = ctx->GetSubsystem<ResourceCache>();
-		//SharedPtr <Texture2D> diffTex(cache->GetResource<Texture2D>("Textures/1024x1024 Texel Density Texture 1.png"));
-		SharedPtr <Texture2D> diffTex(cache->GetResource<Texture2D>("Textures/StoneDiffuse.dds"));
+		SharedPtr <Texture2D> diffTex(cache->GetResource<Texture2D>(diffusePaths[Random(0, diffusePaths.Size())]));
 		if (diffTex == nullptr)
 		{
 			URHO3D_LOGERROR(String("diffTex->LoadFile fail"));

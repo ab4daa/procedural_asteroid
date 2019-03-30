@@ -250,9 +250,13 @@ void RenderToTexture::CreateScene()
 		nebula->SetScale(Vector3(30.0f, 30.0f, 30.f));
 		s->AddInstanceNode(nebula);
 #endif
+		Vector<String> diffuses;
+		diffuses.Push("Textures/StoneDiffuse.dds");
+		diffuses.Push("Textures/TexturesCom_SoilRough0039_1_seamless_S.jpg");
+		diffuses.Push("Textures/TexturesCom_SoilRough0071_1_seamless_S.jpg");
 #if 1
 		Node * ast = scene_->CreateChild("asteroids");
-		CreateAsteroidBlob(context_, ast, 256, 20);
+		CreateAsteroidBlob(context_, ast, 256, 20, diffuses);
 		StaticModelGroup * smg = ast->GetComponent<StaticModelGroup>();
 		Node * ast1 = scene_->CreateChild("asteroid");
 		ast1->SetPosition(Vector3(-20.5f, 40.0f, 20.5f));
@@ -261,7 +265,7 @@ void RenderToTexture::CreateScene()
 #endif
 
 		Node * ast_triplanar = scene_->CreateChild("asteroids_triplanar");
-		CreateAsteroidBlob_triplanar(context_, ast_triplanar, 256, 20);
+		CreateAsteroidBlob_triplanar(context_, ast_triplanar, 512, 20, diffuses);
 		StaticModelGroup * smg_triplanar = ast_triplanar->GetComponent<StaticModelGroup>();
 		Node * ast_triplanar1 = scene_->CreateChild("asteroid triplanar");
 		ast_triplanar1->SetPosition(Vector3(-50.5f, 40.0f, 20.5f));
@@ -411,16 +415,6 @@ void RenderToTexture::HandleUpdate(StringHash eventType, VariantMap& eventData)
 
     // Move the camera, scale movement with time step
     MoveCamera(timeStep);
-
-	auto* input = GetSubsystem<Input>();
-	if (input->GetKeyPress(Key::KEY_SPACE))
-	{
-		mouseFree = !mouseFree;
-		if (mouseFree)
-			Sample::InitMouseMode(MM_FREE);
-		else
-			Sample::InitMouseMode(MM_RELATIVE);
-	}
 }
 
 void RenderToTexture::HandlePostRenderUpdate(StringHash eventType, VariantMap& eventData)
