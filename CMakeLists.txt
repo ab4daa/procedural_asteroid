@@ -1,7 +1,7 @@
 # Set project name
-project (effect_test)
+project (procedural_asteroid)
 # Define target name
-set (TARGET_NAME effect_test)
+set (TARGET_NAME procedural_asteroid)
 
 ######################################
 
