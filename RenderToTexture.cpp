@@ -21,7 +21,6 @@
 //
 
 #include <random>
-#include "FastNoise.h"
 #include "nebula_blob.h"
 #include "asteroid.h"
 #include "asteroid_triplanar.h"
@@ -143,7 +142,7 @@ void RenderToTexture::CreateScene()
 		diffuses.Push("Textures/StoneDiffuse.dds");
 		diffuses.Push("Textures/TexturesCom_SoilRough0039_1_seamless_S.jpg");
 		diffuses.Push("Textures/TexturesCom_SoilRough0071_1_seamless_S.jpg");
-#if 1
+
 		Node * ast = scene_->CreateChild("asteroids");
 		CreateAsteroidBlob(context_, ast, 256, 20, diffuses);
 		StaticModelGroup * smg = ast->GetComponent<StaticModelGroup>();
@@ -151,7 +150,6 @@ void RenderToTexture::CreateScene()
 		ast1->SetPosition(Vector3(-20.5f, 40.0f, 20.5f));
 		ast1->SetScale(10.0f);
 		smg->AddInstanceNode(ast1);
-#endif
 
 		Node * ast_triplanar = scene_->CreateChild("asteroids_triplanar");
 		CreateAsteroidBlob_triplanar(context_, ast_triplanar, 512, 20, diffuses);
@@ -160,43 +158,6 @@ void RenderToTexture::CreateScene()
 		ast_triplanar1->SetPosition(Vector3(-50.5f, 40.0f, 20.5f));
 		ast_triplanar1->SetScale(10.0f);
 		smg_triplanar->AddInstanceNode(ast_triplanar1);
-#if 0
-		SharedPtr <Texture3D> perlin3D(MakeShared<Texture3D>(context_));
-		perlin3D->SetNumLevels(1);
-		if (perlin3D->SetSize(TexSize, TexSize, TexSize, Graphics::GetRGBAFormat(), TEXTURE_DYNAMIC) == false)
-		{
-			URHO3D_LOGERROR(String("perlin3D->SetSize fail"));
-		}
-		SharedPtr<Image> pic3D(MakeShared<Image>(context_));
-		pic3D->SetSize(TexSize, TexSize, TexSize, 3);
-		for (int xx = 0; xx < TexSize; ++xx)
-		{
-			for (int yy = 0; yy < TexSize; ++yy)
-			{
-				for (int zz = 0; zz < TexSize; ++zz)
-				{
-					float p = perlin.octaveNoise0_1((double)xx / fx, (double)yy / fx, (double)zz/fx, 8);
-					Color c(p, p, p);
-					pic3D->SetPixel(xx, yy, zz, c);
-				}
-			}
-		}
-		perlin3D->SetData(pic3D, false);
-
-		Node * nebulaNode = scene_->CreateChild("Nebula");
-		nebulaNode->SetPosition(Vector3(-40.5f, 60.0f, -40.5f));
-		nebulaNode->SetScale(Vector3(50.0f, 50.0f, 50.f));
-		auto* nebulaObject = nebulaNode->CreateComponent<StaticModel>();
-		nebulaObject->SetModel(cache->GetResource<Model>("Models/Sphere.mdl"));
-		auto* m = cache->GetResource<Material>("Materials/nebular.xml");
-		m->SetShaderParameter("NebularColor", Vector3(Random(1.0f), Random(1.0f), Random(1.0f)));
-		m->SetShaderParameter("NebularOffset", Vector3(Random(1.0f) * 2000 - 1000, Random(1.0f) * 2000 - 1000, Random(1.0f) * 2000 - 1000));
-		m->SetShaderParameter("NebularScale", Random(1.0f) * 0.5f + 0.25f);
-		m->SetShaderParameter("NebularIntensity", Random(1.0f) * 0.2f + 0.9f);
-		m->SetShaderParameter("NebularFalloff", Random(1.0f) * 3 + 3);
-		//m->SetTexture(TU_VOLUMEMAP, perlin3D);
-		nebulaObject->SetMaterial(m);
-#endif
 
         // Create a "floor" consisting of several tiles
         for (int y = -5; y <= 5; ++y)
