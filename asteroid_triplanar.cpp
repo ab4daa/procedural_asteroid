@@ -660,18 +660,96 @@ namespace Urho3D
 			}
 		}
 
+		/*topography height; need to be tile-able 
+		www.gamedev.net/blogs/entry/2138456-seamless-noise/
+		*/
+		FastNoise *simplex = new FastNoise(Random(0, M_MAX_UNSIGNED));
+		simplex->SetFrequency(0.02f);
+		float **topography = new float *[size];
+		for (unsigned ii = 0; ii < size; ++ii)
+			topography[ii] = new float[size];
+
+		float max = FLT_MIN, min = FLT_MAX;
+		const float x1 = Random(500.0f);
+		const float y1 = Random(500.0f);
+		const float x2 = x1 + Random(500.0f);
+		const float y2 = y1 + Random(500.0f);
+		for (unsigned x = 0; x < size; ++x)
+		{
+			for (unsigned y = 0; y < size; ++y)
+			{
+				const float dx = x2 - x1;
+				const float dy = y2 - y1;
+				float s = (float)x / size;
+				float t = (float)y / size;
+				float nx = x1 + Cos(s * 360.0f)*dx / (2 * M_PI);
+				float ny = y1 + Cos(t * 360.0f)*dy / (2 * M_PI);
+				float nz = x1 + Sin(s * 360.0f)*dx / (2 * M_PI);
+				float nw = y1 + Sin(t * 360.0f)*dy / (2 * M_PI);
+#if 1
+				const unsigned octaves = 5;
+				const float lacunarity = 2.0f;
+				const float gain = 0.5f;
+				float amp = 1.0f;
+				float fbmSum = simplex->GetSimplex(nx, ny, nz, nw);
+				for (unsigned ii = 0; ii < octaves; ++ii)
+				{
+					nx *= lacunarity;
+					ny *= lacunarity;
+					nz *= lacunarity;
+					nw *= lacunarity;
+					amp *= gain;
+					fbmSum += simplex->GetSimplex(nx, ny, nz, nw) * amp;
+				}
+				topography[x][y] = fbmSum;
+#else
+				topography[x][y] = simplex->GetSimplex(nx, ny, nz, nw);
+#endif
+				if (topography[x][y] > max)
+					max = topography[x][y];
+				if (topography[x][y] < min)
+					min = topography[x][y];
+			}
+		}
+		delete simplex;
+		/*normalize to [-0.5, 0.5]*/
+		for (unsigned x = 0; x < size; ++x)
+		{
+			for (unsigned y = 0; y < size; ++y)
+			{
+				topography[x][y] = (topography[x][y] - min) / (max - min) - 0.5f;
+			}
+		}
+
+		const float topographyFactor = 0.3f;
+		for (int x = 0; x < size; ++x)
+		{
+			for (int y = 0; y < size; ++y)
+			{
+				Color c = ret->GetPixel(x, y);
+				float h = (topography[x][y] - 0.5f) * topographyFactor;
+				Color r(h, h, h, h);
+				c += r;
+				ret->SetPixel(x, y, c);
+			}
+		}
+
+		for (unsigned ii = 0; ii < size; ++ii)
+			delete[] topography[ii];
+		delete[] topography;
+
 		const unsigned numCraters = Random(5, 15);
 		for (unsigned ii = 0; ii < numCraters; ++ii)
 		{
 			int centerX = Random(0, size - 1);
 			int centerY = Random(0, size - 1);
-			float radius = Random(5.0f, 30.0f);
+			float radius = Random(10.0f, 40.0f);
 
 			while (centerX < radius || centerX + radius > size || centerY < radius || centerY + radius > size)
 			{
 				centerX = Random(0, size - 1);
 				centerY = Random(0, size - 1);
-				radius = Random(5.0f, 30.0f);
+				radius = Random(10.0f, 40.0f);
 			}
 
 			for (int x = 0; x < size; ++x)
@@ -691,13 +769,14 @@ namespace Urho3D
 				}
 			}
 		}
+
 		/*add shallow roughness*/
 		FastNoise *cell = new FastNoise(Random(0, M_MAX_UNSIGNED));
 		float **Layer = new float *[size];
 		for (unsigned ii = 0; ii < size; ++ii)
 			Layer[ii] = new float[size];
 
-		float max = 0.0f, min = 0.0f;
+		max = FLT_MIN, min = FLT_MAX;
 		for (unsigned x = 0; x < size; ++x)
 		{
 			for (unsigned y = 0; y < size; ++y)
@@ -710,12 +789,12 @@ namespace Urho3D
 			}
 		}
 		delete cell;
-		/*normalize to [0, 1]*/
+		/*normalize to [-0.5, 0.5]*/
 		for (unsigned x = 0; x < size; ++x)
 		{
 			for (unsigned y = 0; y < size; ++y)
 			{
-				Layer[x][y] = (Layer[x][y] - min) / (max - min);
+				Layer[x][y] = (Layer[x][y] - min) / (max - min) - 0.5f;
 			}
 		}
 
