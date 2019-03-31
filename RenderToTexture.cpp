@@ -342,7 +342,7 @@ void RenderToTexture::CreateInstructions()
 
     // Construct new Text object, set string to display and font to use
     auto* instructionText = ui->GetRoot()->CreateChild<Text>();
-    instructionText->SetText("Use WASD keys to move/ Press Space to toggle free mouse");
+    instructionText->SetText("Use WASD keys to move");
     instructionText->SetFont(cache->GetResource<Font>("Fonts/Anonymous Pro.ttf"), 15);
 
     // Position the text relative to the screen center
