@@ -127,118 +127,7 @@ void RenderToTexture::CreateScene()
         light->SetSpecularIntensity(1.0f);
 		light->SetCastShadows(true);
 
-		const Color NC(0.8f, 0.2f, 0.4f);
-		Color c1(Random(1.0f), Random(1.0f), Random(1.0f));
-		Color c2(Random(1.0f), Random(1.0f), Random(1.0f));
 		const int TexSize = 256;
-		const double frequency = 4.0;
-		const double fx = TexSize / frequency;
-#if 0
-		siv::PerlinNoise perlin(generate_random_seed());
-		SharedPtr <Texture2D> perlin2D(MakeShared<Texture2D>(context_));
-		perlin2D->SetNumLevels(1);
-		if (perlin2D->SetSize(TexSize, TexSize, Graphics::GetRGBAFormat(), TEXTURE_DYNAMIC) == false)
-		{
-			URHO3D_LOGERROR(String("perlin2D->SetSize fail"));
-		}
-		SharedPtr<Image> pic(MakeShared<Image>(context_));
-		pic->SetSize(TexSize, TexSize, 4);
-		for (int xx = 0; xx < TexSize; ++xx)
-		{
-			for (int yy = 0; yy < TexSize; ++yy)
-			{
-				double x = xx / fx;
-				double y = yy / fx;
-				//double p = perlin.octaveNoise0_1((double)xx / fx, (double)yy / fx, 8);
-				double p = perlin.octaveNoise0_1(x + 2.0f * perlin.octaveNoise0_1(x, y, 8), y + 2.0f * perlin.octaveNoise0_1(x, y, 8), 8);
-				float dist = (Vector2(xx, yy) - Vector2(TexSize / 2, TexSize / 2)).Length();
-				float a = Pow(1.0f - dist / TexSize, 8.0f);
-				Color c(p, p, p, a);
-				pic->SetPixel(xx, yy, c);
-			}
-		}
-		perlin2D->SetData(pic, true);
-#endif
-
-#if 1
-		const unsigned degree_step = 90;
-		const Quaternion q[] =
-		{
-			Quaternion::IDENTITY,
-			Quaternion(90.0f, Vector3::RIGHT),
-			Quaternion(90.0f, Vector3::FORWARD),
-
-			Quaternion(90.0f, Vector3(1.0f, 0.0f, -1.0f)),
-			Quaternion(90.0f, Vector3(1.0f, 0.0f, 1.0f)),
-		};
-		for(unsigned ii = 0; ii < 5; ii++)
-		{
-			if (ii % 2)
-			{
-				c1 = Color(Random(1.0f), Random(1.0f), Random(1.0f));
-				c2 = Color(Random(1.0f), Random(1.0f), Random(1.0f));
-			}
-#if 1
-			FastNoise perlin(generate_random_seed());
-			perlin.SetFractalOctaves(8);
-			perlin.SetFrequency(0.04f);
-			float ** noise = alloc2Darr<float>(TexSize, TexSize);
-			for (int xx = 0; xx < TexSize; ++xx)
-			{
-				for (int yy = 0; yy < TexSize; ++yy)
-				{
-					noise[xx][yy] = perlin.GetPerlinFractal(xx, yy);
-				}
-			}
-			normalize2Darr<float>(noise, TexSize, TexSize);
-			SharedPtr <Texture2D> perlin2D(MakeShared<Texture2D>(context_));
-			perlin2D->SetNumLevels(1);
-			if (perlin2D->SetSize(TexSize, TexSize, Graphics::GetRGBAFormat(), TEXTURE_DYNAMIC) == false)
-			{
-				URHO3D_LOGERROR(String("perlin2D->SetSize fail"));
-			}
-			SharedPtr<Image> pic(MakeShared<Image>(context_));
-			pic->SetSize(TexSize, TexSize, 4);
-			for (int xx = 0; xx < TexSize; ++xx)
-			{
-				for (int yy = 0; yy < TexSize; ++yy)
-				{
-					float dist = (Vector2(xx, yy) - Vector2(TexSize / 2, TexSize / 2)).Length();
-					Vector2 n(Vector2(xx,yy).Normalized() * 1000.0f);
-					float a = Pow(1.0f - dist / TexSize, 6.0f);
-#if 1
-					Color c(NC);
-					c.a_ = Pow(noise[xx][yy], 4.0f) * a;
-#else
-					Color c = c1.Lerp(c2, noise[xx][yy]);
-					c.a_ = a;
-#endif
-					pic->SetPixel(xx, yy, c);
-				}
-			}
-			perlin2D->SetData(pic, true);
-			release2Darr<float>(noise, TexSize, TexSize);
-#endif
-			Node * boxNode = scene_->CreateChild("Box");
-			boxNode->SetPosition(Vector3(20.5f, 40.0f, 20.5f) /*+ Vector3(Random(-1.0f, 1.0f), Random(-1.0f, 1.0f), Random(-1.0f, 1.0f))*/);
-			boxNode->SetScale(Vector3(30.0f, 30.0f, 30.f));
-			boxNode->SetRotation(q[ii]);
-			auto* boxObject = boxNode->CreateComponent<StaticModel>();
-			boxObject->SetModel(cache->GetResource<Model>("Models/Plane.mdl"));
-			//auto  mm = cache->GetResource<Material>("Materials/Stone.xml")->Clone();
-			SharedPtr<Material> mm = MakeShared<Material>(context_);
-			mm->SetNumTechniques(1);
-			mm->SetTechnique(0, cache->GetResource<Technique>("Techniques/DiffAlphaNebula.xml"), QUALITY_MAX);
-			mm->SetTexture(TU_DIFFUSE, perlin2D);
-			mm->SetCullMode(CULL_NONE);
-			boxObject->SetMaterial(mm);
-			//boxObject->SetMaterial(cache->GetResource<Material>("Materials/Stone.xml"));
-			//boxObject->GetMaterial()->SetCullMode(CULL_NONE);
-			boxObject->SetCastShadows(false);
-			planes_.Push(SharedPtr<Node>(boxNode));
-		}
-#endif
-#if 1
 		Node * nebulas = scene_->CreateChild("nebulaes");
 		PODVector<Color> colors;
 		for (unsigned ii = 0; ii < 2; ii++)
@@ -249,7 +138,7 @@ void RenderToTexture::CreateScene()
 		nebula->SetPosition(Vector3(-20.5f, 40.0f, -20.5f));
 		nebula->SetScale(Vector3(30.0f, 30.0f, 30.f));
 		s->AddInstanceNode(nebula);
-#endif
+
 		Vector<String> diffuses;
 		diffuses.Push("Textures/StoneDiffuse.dds");
 		diffuses.Push("Textures/TexturesCom_SoilRough0039_1_seamless_S.jpg");
@@ -419,10 +308,4 @@ void RenderToTexture::HandleUpdate(StringHash eventType, VariantMap& eventData)
 
 void RenderToTexture::HandlePostRenderUpdate(StringHash eventType, VariantMap& eventData)
 {
-	DebugRenderer * debug = scene_->GetComponent<DebugRenderer>();
-	for (unsigned i = 0; i < planes_.Size(); ++i)
-	{
-		StaticModel * s = planes_[i]->GetComponent<StaticModel>();
-		s->DrawDebugGeometry(debug, true);
-	}
 }

@@ -65,5 +65,4 @@ private:
 
 	bool mouseFree{ false };
 	SharedPtr<Node> lightNode;
-	Vector< SharedPtr<Node>> planes_;
 };
