@@ -454,6 +454,19 @@ namespace Urho3D
 		}
 	}
 
+	static unsigned numVerticesBehindPlane(const PODVector<asteroid_vertex_data_> &vd, const Plane &p)
+	{
+		unsigned ret = 0;
+
+		for (unsigned ii = 0; ii < vd.Size(); ++ii)
+		{
+			if (p.Distance(vd[ii].position) < 0.0f)
+				ret += 1;
+		}
+
+		return ret;
+	}
+
 	static unsigned numCornersBehindPlane(const BoundingBox &bb, const Plane &p)
 	{
 		Vector3 bbCorners[8] = {
@@ -570,7 +583,7 @@ namespace Urho3D
 				Vector3 plane_point(Random(plane_points_x_start[ii], plane_points_x_end[ii]), Random(plane_points_y_start[ii], plane_points_y_end[ii]),
 					Random(plane_points_z_start[ii], plane_points_z_end[ii]));
 				Plane plane(-(q * plane_point), plane_point);
-				if (numCornersBehindPlane(BB, plane) == 1)
+				if (numCornersBehindPlane(BB, plane) == 1 && numVerticesBehindPlane(vd, plane) > 0)
 				{
 					cutByPlane(vd, plane);
 					break;
